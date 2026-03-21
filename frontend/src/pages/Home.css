@@ -1,0 +1,274 @@
+.home {
+  padding: 20px 0;
+  position: relative;
+}
+
+.section-title {
+  font-size: 28px;
+  font-weight: 800;
+  margin-bottom: 20px;
+  color: var(--color-deep-blue-dark);
+  padding-bottom: 12px;
+  border-bottom: 3px solid;
+  border-image: var(--gradient-accent) 1;
+  position: relative;
+  z-index: 2;
+  display: inline-block;
+  background: linear-gradient(135deg, var(--color-deep-blue-dark) 0%, var(--color-terracotta) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.section-title::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  width: 60px;
+  height: 4px;
+  background: var(--gradient-accent);
+  border-radius: 2px;
+}
+
+.comics-section {
+  margin-bottom: 30px;
+  position: relative;
+  z-index: 1;
+  padding: 25px;
+  background: linear-gradient(135deg, rgba(245, 230, 211, 0.3) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(245, 230, 211, 0.3) 100%);
+  border-radius: 20px;
+  box-shadow: 
+    0 6px 24px rgba(44, 62, 107, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  position: relative;
+  overflow: hidden;
+  border: 2px solid var(--color-slate-blue);
+}
+
+.comics-section::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(217, 125, 84, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  animation: float 20s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(-5%, -5%) rotate(5deg);
+  }
+}
+
+.comics-grid {
+  display: grid;
+  gap: 18px;
+  margin-top: 15px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Popular Comics Carousel - Click Navigation */
+.popular-carousel-wrapper {
+  margin-top: 15px;
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.popular-carousel-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.popular-carousel {
+  display: flex;
+  gap: 16px;
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: transform;
+}
+
+.popular-carousel-item {
+  flex: 0 0 calc((100% - 64px) / 5); /* 5 items visible, 4 gaps of 16px */
+  min-width: 0;
+}
+
+.carousel-btn {
+  flex: 0 0 48px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: none;
+  background: var(--gradient-primary);
+  color: white;
+  font-size: 28px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 12px rgba(44, 62, 107, 0.3);
+  z-index: 2;
+  line-height: 1;
+}
+
+.carousel-btn:hover:not(:disabled) {
+  transform: scale(1.1);
+  box-shadow: 0 6px 16px rgba(44, 62, 107, 0.4);
+  background: var(--gradient-accent);
+}
+
+.carousel-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: var(--color-slate-blue-dark);
+}
+
+.carousel-btn-prev {
+  order: 1;
+}
+
+.popular-carousel-container {
+  order: 2;
+  flex: 1;
+}
+
+.carousel-btn-next {
+  order: 3;
+}
+
+/* Popular grid fallback (if needed) */
+.popular-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  max-width: 100%;
+}
+
+.latest-grid {
+  grid-template-columns: repeat(6, 1fr);
+}
+
+.comics-row {
+  margin-bottom: 20px;
+}
+
+.view-more-section {
+  text-align: center;
+  margin-top: 30px;
+}
+
+.btn-view-more {
+  display: inline-block;
+  padding: 14px 36px;
+  background: var(--gradient-primary);
+  color: white;
+  border-radius: 16px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 16px rgba(44, 62, 107, 0.3);
+  position: relative;
+  overflow: hidden;
+  font-size: 16px;
+}
+
+.btn-view-more::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  transform: translate(-50%, -50%);
+  transition: width 0.6s, height 0.6s;
+}
+
+.btn-view-more:hover {
+  transform: translateY(-4px) scale(1.05);
+  box-shadow: 0 8px 24px rgba(44, 62, 107, 0.4);
+}
+
+.btn-view-more:hover::before {
+  width: 400px;
+  height: 400px;
+}
+
+/* Dark mode */
+.dark .section-title {
+  background: linear-gradient(135deg, var(--color-cream-light) 0%, var(--color-terracotta-light) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  border-image: var(--gradient-accent) 1;
+}
+
+.dark .comics-section {
+  background: linear-gradient(135deg, rgba(30, 42, 74, 0.4) 0%, rgba(26, 26, 26, 0.6) 50%, rgba(30, 42, 74, 0.4) 100%);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(107, 122, 159, 0.2);
+  border-color: var(--color-slate-blue);
+}
+
+.dark .comics-section::after {
+  background: radial-gradient(circle, rgba(217, 125, 84, 0.15) 0%, transparent 70%);
+}
+
+@media (max-width: 1200px) {
+  .latest-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+@media (max-width: 1200px) {
+  .popular-carousel-item {
+    flex: 0 0 calc((100% - 64px) / 4); /* 4 items on tablet */
+  }
+  
+  .popular-carousel {
+    gap: 16px;
+  }
+}
+
+@media (max-width: 768px) {
+  .popular-carousel-item {
+    flex: 0 0 calc((100% - 48px) / 3); /* 3 items on mobile */
+  }
+  
+  .popular-carousel {
+    gap: 12px;
+  }
+  
+  .carousel-btn {
+    width: 40px;
+    height: 40px;
+    font-size: 24px;
+    flex: 0 0 40px;
+  }
+  
+  .latest-grid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .latest-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
