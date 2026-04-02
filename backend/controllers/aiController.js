@@ -1,6 +1,7 @@
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Comic = require('../models/Comic');
 const Chapter = require('../models/Chapter');
+const AIUsageLog = require('../models/AIUsageLog');
 const { successResponse, errorResponse } = require('../utils/response');
 const axios = require('axios');
 
@@ -12,6 +13,10 @@ const getModel = () => {
 };
 
 class AIController {
+  toNullableNumber(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
   /**
    * Tóm tắt truyện dựa vào tên, tác giả và đất nước
    */
@@ -53,8 +58,23 @@ Hãy viết bằng tiếng Việt, giọng văn tự nhiên và hấp dẫn. QUA
       const response = await result.response;
       const summary = response.text();
 
+      await AIUsageLog.create({
+        user_id: req.user?.id || null,
+        comic_id: this.toNullableNumber(comicId),
+        action: 'summarize_story',
+        prompt_chars: prompt.length,
+        response_chars: summary.length
+      });
+
       return successResponse(res, { summary }, 'Tóm tắt truyện thành công');
     } catch (error) {
+      await AIUsageLog.create({
+        user_id: req.user?.id || null,
+        comic_id: this.toNullableNumber(req.params.comicId),
+        action: 'summarize_story',
+        is_success: false,
+        error_message: error.message?.slice(0, 500) || 'unknown_error'
+      });
       console.error('Error summarizing comic:', error);
       return errorResponse(res, 'Lỗi khi tạo tóm tắt truyện: ' + error.message, 500);
     }
@@ -177,6 +197,15 @@ QUAN TRỌNG: Tóm tắt phải ngắn gọn thành đoạn văn chỉ khoảng 
             const result = await model.generateContent([textPrompt, ...imageParts]);
             const response = await result.response;
             const summary = response.text();
+
+            await AIUsageLog.create({
+              user_id: req.user?.id || null,
+              comic_id: chapter.comic_id,
+              chapter_id: this.toNullableNumber(chapterId),
+              action: 'summarize_chapter',
+              prompt_chars: textPrompt.length,
+              response_chars: summary.length
+            });
             return successResponse(res, { summary }, 'Tóm tắt chương thành công');
           }
         } catch (visionError) {
@@ -191,8 +220,24 @@ QUAN TRỌNG: Tóm tắt phải ngắn gọn thành đoạn văn chỉ khoảng 
       const response = await result.response;
       const summary = response.text();
 
+      await AIUsageLog.create({
+        user_id: req.user?.id || null,
+        comic_id: chapter.comic_id,
+        chapter_id: this.toNullableNumber(chapterId),
+        action: 'summarize_chapter',
+        prompt_chars: textPrompt.length,
+        response_chars: summary.length
+      });
+
       return successResponse(res, { summary }, 'Tóm tắt chương thành công');
     } catch (error) {
+      await AIUsageLog.create({
+        user_id: req.user?.id || null,
+        chapter_id: this.toNullableNumber(req.params.chapterId),
+        action: 'summarize_chapter',
+        is_success: false,
+        error_message: error.message?.slice(0, 500) || 'unknown_error'
+      });
       console.error('Error summarizing chapter:', error);
       return errorResponse(res, 'Lỗi khi tạo tóm tắt chương: ' + error.message, 500);
     }
@@ -251,11 +296,28 @@ Hãy trả lời một cách thân thiện, chi tiết và hữu ích bằng ti�
       const response = await result.response;
       const aiResponse = response.text();
 
+      await AIUsageLog.create({
+        user_id: req.user?.id || null,
+        comic_id: comicId || null,
+        chapter_id: chapterId || null,
+        action: 'chat',
+        prompt_chars: fullPrompt.length,
+        response_chars: aiResponse.length
+      });
+
       return successResponse(res, { 
         response: aiResponse,
         message: message
       }, 'Chat thành công');
     } catch (error) {
+      await AIUsageLog.create({
+        user_id: req.user?.id || null,
+        comic_id: req.body?.comicId || null,
+        chapter_id: req.body?.chapterId || null,
+        action: 'chat',
+        is_success: false,
+        error_message: error.message?.slice(0, 500) || 'unknown_error'
+      });
       console.error('Error in AI chat:', error);
       return errorResponse(res, 'Lỗi khi chat với AI: ' + error.message, 500);
     }

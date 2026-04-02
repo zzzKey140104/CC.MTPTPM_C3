@@ -96,8 +96,34 @@ const optionalAuth = async (req, res, next) => {
   }
 };
 
+const authorizePermission = (permissionKey) => {
+  return async (req, res, next) => {
+    try {
+      if (!req.user?.id) {
+        return errorResponse(res, 'Bạn chưa đăng nhập', 401);
+      }
+
+      // Giữ tương thích cũ: admin luôn có quyền.
+      if (req.user.role === 'admin') {
+        return next();
+      }
+
+      const hasPermission = await User.hasPermission(req.user.id, permissionKey);
+      if (!hasPermission) {
+        return errorResponse(res, 'Bạn không có quyền thực hiện thao tác này', 403);
+      }
+
+      return next();
+    } catch (error) {
+      console.error('Error in authorizePermission:', error);
+      return errorResponse(res, 'Lỗi phân quyền', 500);
+    }
+  };
+};
+
 module.exports = {
   authenticateToken,
-  optionalAuth
+  optionalAuth,
+  authorizePermission
 };
 

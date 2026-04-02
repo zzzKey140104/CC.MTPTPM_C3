@@ -1,6 +1,16 @@
 const db = require('../config/database');
 
 class User {
+  static async syncUserRole(userId, roleName) {
+    if (!userId || !roleName) return;
+    await db.promise.query('DELETE FROM user_roles WHERE user_id = ?', [userId]);
+    await db.promise.query(
+      `INSERT INTO user_roles (user_id, role_id)
+       SELECT ?, id FROM roles WHERE name = ?`,
+      [userId, roleName]
+    );
+  }
+
   static async findByEmail(email) {
     const [users] = await db.promise.query(
       'SELECT * FROM users WHERE email = ?',
@@ -11,7 +21,14 @@ class User {
 
   static async findByIdWithStatus(id) {
     const [users] = await db.promise.query(
-      'SELECT id, username, email, avatar, role, account_status, created_at FROM users WHERE id = ?',
+      `SELECT u.id, u.username, u.email, u.avatar,
+              COALESCE(r.name, u.role) AS role,
+              u.account_status, u.created_at
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
+       WHERE u.id = ?
+       LIMIT 1`,
       [id]
     );
     return users[0] || null;
@@ -19,14 +36,30 @@ class User {
 
   static async findById(id) {
     const [users] = await db.promise.query(
-      'SELECT id, username, email, avatar, role, account_status, created_at FROM users WHERE id = ?',
+      `SELECT u.id, u.username, u.email, u.avatar,
+              COALESCE(r.name, u.role) AS role,
+              u.account_status, u.created_at
+       FROM users u
+       LEFT JOIN user_roles ur ON ur.user_id = u.id
+       LEFT JOIN roles r ON r.id = ur.role_id
+       WHERE u.id = ?
+       LIMIT 1`,
       [id]
     );
     return users[0] || null;
   }
 
   static async create(data) {
-    const { username, email, password, avatar, email_verification_token, google_id, email_verified } = data;
+    const {
+      username,
+      email,
+      password,
+      avatar,
+      email_verification_token,
+      google_id,
+      email_verified,
+      role = 'reader'
+    } = data;
     
     // Xây dựng query động để chỉ insert password khi có giá trị
     // Điều này cho phép Google OAuth accounts không cần password
@@ -66,8 +99,23 @@ class User {
       placeholders.push('?');
     }
     
+    fields.push('role');
+    values.push(role);
+    placeholders.push('?');
+
     const query = `INSERT INTO users (${fields.join(', ')}) VALUES (${placeholders.join(', ')})`;
     const [result] = await db.promise.query(query, values);
+    await this.syncUserRole(result.insertId, role);
+
+    if (google_id) {
+      await db.promise.query(
+        `INSERT INTO user_auth_providers (user_id, provider, provider_user_id)
+         VALUES (?, 'google', ?)
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), updated_at = CURRENT_TIMESTAMP`,
+        [result.insertId, google_id]
+      );
+    }
+
     return result.insertId;
   }
 
@@ -89,6 +137,17 @@ class User {
       `UPDATE users SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       values
     );
+    if (data.role) {
+      await this.syncUserRole(id, data.role);
+    }
+    if (data.google_id) {
+      await db.promise.query(
+        `INSERT INTO user_auth_providers (user_id, provider, provider_user_id)
+         VALUES (?, 'google', ?)
+         ON DUPLICATE KEY UPDATE user_id = VALUES(user_id), updated_at = CURRENT_TIMESTAMP`,
+        [id, data.google_id]
+      );
+    }
     return result.affectedRows > 0;
   }
 
@@ -198,6 +257,31 @@ class User {
       [userId]
     );
     return result.affectedRows > 0;
+  }
+
+  static async getPermissions(userId) {
+    const [rows] = await db.promise.query(
+      `SELECT DISTINCT p.permission_key
+       FROM user_roles ur
+       JOIN role_permissions rp ON rp.role_id = ur.role_id
+       JOIN permissions p ON p.id = rp.permission_id
+       WHERE ur.user_id = ?`,
+      [userId]
+    );
+    return rows.map((row) => row.permission_key);
+  }
+
+  static async hasPermission(userId, permissionKey) {
+    const [rows] = await db.promise.query(
+      `SELECT 1
+       FROM user_roles ur
+       JOIN role_permissions rp ON rp.role_id = ur.role_id
+       JOIN permissions p ON p.id = rp.permission_id
+       WHERE ur.user_id = ? AND p.permission_key = ?
+       LIMIT 1`,
+      [userId, permissionKey]
+    );
+    return rows.length > 0;
   }
 }
 

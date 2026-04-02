@@ -10,6 +10,16 @@ class Payment {
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [user_id, order_id, amount, payment_type, qr_code_url, qr_code_data, expires_at]
       );
+
+      // Mirror transaction vào bảng chuẩn hóa mới để theo dõi mở rộng.
+      await db.promise.query(
+        `INSERT INTO payment_transactions
+        (user_id, provider_id, order_id, amount, payment_type, qr_code_url, qr_code_data, expires_at)
+        VALUES (
+          ?, (SELECT id FROM payment_providers WHERE provider_key = 'momo' LIMIT 1), ?, ?, ?, ?, ?, ?
+        )`,
+        [user_id, order_id, amount, payment_type, qr_code_url, qr_code_data, expires_at]
+      );
       
       if (result.insertId) {
         console.log(`✅ Payment created in database: ID=${result.insertId}, order_id=${order_id}, user_id=${user_id}`);
@@ -101,6 +111,37 @@ class Payment {
         `UPDATE payments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE order_id = ?`,
         values
       );
+      const txFields = [];
+      const txValues = [];
+      if (data.status !== undefined) {
+        txFields.push('status = ?');
+        txValues.push(data.status);
+      }
+      if (data.qr_code_url !== undefined) {
+        txFields.push('qr_code_url = ?');
+        txValues.push(data.qr_code_url);
+      }
+      if (data.qr_code_data !== undefined) {
+        txFields.push('qr_code_data = ?');
+        txValues.push(data.qr_code_data);
+      }
+      if (data.momo_transaction_id !== undefined) {
+        txFields.push('provider_transaction_id = ?');
+        txValues.push(data.momo_transaction_id);
+      }
+      if (data.expires_at !== undefined) {
+        txFields.push('expires_at = ?');
+        txValues.push(data.expires_at);
+      }
+      if (txFields.length > 0) {
+        txValues.push(order_id);
+        await db.promise.query(
+          `UPDATE payment_transactions
+           SET ${txFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
+           WHERE order_id = ?`,
+          txValues
+        );
+      }
       
       const success = result.affectedRows > 0;
       if (success) {
