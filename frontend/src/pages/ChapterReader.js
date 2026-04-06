@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useChapter } from '../hooks/useChapter';
 import { useAuth } from '../contexts/AuthContext';
-import { addReadingHistory, getChaptersByComicId, summarizeChapter } from '../services/api';
+import { addReadingHistory, getChaptersByComicId, summarizeChapter, getChapterAudio, createChapterAudio } from '../services/api';
 import Loading from '../components/common/Loading';
 import CommentsSection from '../components/features/CommentsSection';
 import { formatDate, getImageUrl } from '../utils/helpers';
@@ -23,6 +23,15 @@ const ChapterReader = () => {
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [readMode, setReadMode] = useState('images');
+  
+  // Audio states
+  const [chapterAudio, setChapterAudio] = useState(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [loadingAudio, setLoadingAudio] = useState(false);
+  const [creatingAudio, setCreatingAudio] = useState(false);
+  const [audioError, setAudioError] = useState(null);
+  const audioRef = useRef(null);
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
 
   const handleScrollToTop = () => {
     window.scrollTo({
@@ -124,6 +133,78 @@ const ChapterReader = () => {
       });
     }
   }, [chapter, isAuthenticated, id]);
+
+  // Fetch chapter audio when chapter loads
+  useEffect(() => {
+    if (chapter && chapter.images && chapter.images.length > 0) {
+      fetchChapterAudio();
+    }
+  }, [chapter?.id]);
+
+  const fetchChapterAudio = async () => {
+    try {
+      setLoadingAudio(true);
+      const response = await getChapterAudio(id);
+      if (response.data.success && response.data.hasAudio) {
+        setChapterAudio(response.data.audio);
+        setShowAudioPlayer(true);
+      }
+    } catch (error) {
+      console.error('Error fetching chapter audio:', error);
+    } finally {
+      setLoadingAudio(false);
+    }
+  };
+
+  const handleCreateAudio = async () => {
+    if (!isAuthenticated) {
+      alert('Vui lòng đăng nhập để tạo audio');
+      return;
+    }
+
+    try {
+      setCreatingAudio(true);
+      setAudioError(null);
+      const response = await createChapterAudio(id, {
+        voice: 'vi-VN-HonMyBellNeural',
+        rate: '+10%'
+      });
+      
+      if (response.data.success) {
+        setChapterAudio(response.data.audio);
+        setShowAudioPlayer(true);
+        alert('Tạo audio thành công! Bạn có thể nghe chương ngay bây giờ.');
+      }
+    } catch (error) {
+      console.error('Error creating chapter audio:', error);
+      setAudioError(error.response?.data?.message || 'Lỗi khi tạo audio');
+      alert('Lỗi khi tạo audio: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setCreatingAudio(false);
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (audioRef.current) {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        audioRef.current.play();
+      }
+      setIsPlaying(!isPlaying);
+    }
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+  };
+
+  const formatDuration = (seconds) => {
+    if (!seconds) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   useEffect(() => {
     if (!chapter) return;
@@ -316,6 +397,81 @@ const ChapterReader = () => {
             <span className="nav-btn disabled">Chương sau →</span>
           )}
         </div>
+
+        {/* Audio Player Section */}
+        {showAudioPlayer && chapterAudio && chapterAudio.audio_url && (
+          <div className="chapter-audio-section">
+            <div className="audio-player-container">
+              <div className="audio-player-header">
+                <span className="audio-icon">🎧</span>
+                <span className="audio-title">Audio Chương</span>
+                {chapterAudio.duration && (
+                  <span className="audio-duration">({formatDuration(chapterAudio.duration)})</span>
+                )}
+              </div>
+              <div className="audio-player-controls">
+                <audio
+                  ref={audioRef}
+                  src={chapterAudio.audio_url}
+                  onEnded={handleAudioEnded}
+                  onError={(e) => {
+                    console.error('Audio playback error:', e);
+                    setAudioError('Không thể phát audio');
+                  }}
+                />
+                <button 
+                  className={`audio-btn ${isPlaying ? 'playing' : ''}`}
+                  onClick={togglePlayPause}
+                  title={isPlaying ? 'Tạm dừng' : 'Phát audio'}
+                >
+                  {isPlaying ? '⏸️' : '▶️'}
+                </button>
+                <div className="audio-info">
+                  <span>{chapterAudio.text_content?.length || 0} ký tự đã trích xuất</span>
+                </div>
+                <button 
+                  className="audio-btn-close"
+                  onClick={() => setShowAudioPlayer(false)}
+                  title="Ẩn audio player"
+                >
+                  ✕
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Audio Create Button (when no audio exists) */}
+        {!chapterAudio && !loadingAudio && (
+          <div className="chapter-audio-create-section">
+            <button 
+              className="btn-create-audio"
+              onClick={handleCreateAudio}
+              disabled={creatingAudio}
+            >
+              {creatingAudio ? (
+                <>
+                  <span className="loading-spinner">⏳</span>
+                  Đang tạo audio...
+                </>
+              ) : (
+                <>
+                  🎧 Tạo Audio Chương
+                </>
+              )}
+            </button>
+            <p className="audio-hint">
+              Tạo audio từ hình ảnh truyện bằng AI (OCR + TTS)
+            </p>
+          </div>
+        )}
+
+        {/* Loading Audio State */}
+        {loadingAudio && (
+          <div className="chapter-audio-loading">
+            <span>⏳ Đang kiểm tra audio...</span>
+          </div>
+        )}
 
         {/* AI Summary Section */}
         <div className="chapter-ai-summary-section">

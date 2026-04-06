@@ -62,6 +62,7 @@ app.use('/api/comments', require('./routes/comments'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/payments', require('./routes/payments'));
+app.use('/api/audio', require('./routes/audio'));
 
 // Error handling middleware (phải đặt sau routes)
 app.use(notFound);
