@@ -22,6 +22,7 @@ const ChapterReader = () => {
   const [aiSummary, setAiSummary] = useState(null);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
+  const [readMode, setReadMode] = useState('images');
 
   const handleScrollToTop = () => {
     window.scrollTo({
@@ -123,6 +124,15 @@ const ChapterReader = () => {
       });
     }
   }, [chapter, isAuthenticated, id]);
+
+  useEffect(() => {
+    if (!chapter) return;
+    if (chapter.images && Array.isArray(chapter.images) && chapter.images.length > 0) {
+      setReadMode('images');
+    } else {
+      setReadMode('text');
+    }
+  }, [chapter]);
 
   // Load danh sách chương khi mở dropdown
   // Reset chapters khi chuyển chapter
@@ -252,6 +262,11 @@ const ChapterReader = () => {
       images = chapter.images.filter(img => img && img.trim()); // Lọc bỏ null/empty
     }
   }
+
+  const hasTextContent = chapter.content && chapter.content.toString().trim() !== '';
+  const canShowText = hasTextContent;
+  const canShowImages = images.length > 0;
+  const displayMode = canShowImages && readMode === 'images' ? 'images' : 'text';
   
   // Debug log
   if (images.length === 0 && chapter.images) {
@@ -349,9 +364,28 @@ const ChapterReader = () => {
           )}
         </div>
 
+        {canShowImages && canShowText && (
+          <div className="chapter-reader-mode-toggle">
+            <button
+              type="button"
+              className={readMode === 'images' ? 'mode-btn active' : 'mode-btn'}
+              onClick={() => setReadMode('images')}
+            >
+              📷 Đọc theo ảnh
+            </button>
+            <button
+              type="button"
+              className={readMode === 'text' ? 'mode-btn active' : 'mode-btn'}
+              onClick={() => setReadMode('text')}
+            >
+              📝 Đọc theo văn bản
+            </button>
+          </div>
+        )}
+
         {/* Nội dung chương */}
         <div className="chapter-content" ref={contentRef}>
-          {images.length > 0 ? (
+          {displayMode === 'images' && images.length > 0 ? (
             images.map((image, index) => {
               if (!image || typeof image !== 'string') {
                 console.warn(`Invalid image at index ${index}:`, image);
@@ -366,6 +400,7 @@ const ChapterReader = () => {
               
               return (
                 <div key={index} className="chapter-page-wrapper">
+                  <div className="chapter-page-number">Trang {index + 1}</div>
                   <img
                     src={imageUrl}
                     alt={`Page ${index + 1}`}
@@ -382,6 +417,12 @@ const ChapterReader = () => {
                 </div>
               );
             }).filter(Boolean) // Lọc bỏ null
+          ) : displayMode === 'text' && canShowText ? (
+            <div className="chapter-text-content">
+              {chapter.content.toString().split('\n').map((paragraph, index) => (
+                paragraph.trim() ? <p key={index}>{paragraph.trim()}</p> : null
+              ))}
+            </div>
           ) : (
             <div className="no-content">
               <p>Chưa có nội dung cho chương này</p>
@@ -392,6 +433,7 @@ const ChapterReader = () => {
                   <p>Images type: {typeof chapter.images}</p>
                   <p>Images value: {JSON.stringify(chapter.images)}</p>
                   <p>Parsed images count: {images.length}</p>
+                  <p>Has text content: {hasTextContent ? 'yes' : 'no'}</p>
                 </div>
               )}
             </div>

@@ -94,6 +94,35 @@
   background-color: #ffffff;
 }
 
+.chapter-reader-mode-toggle {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 20px;
+}
+
+.mode-btn {
+  padding: 10px 18px;
+  border: 1px solid #d1d5db;
+  background: #f8fafc;
+  color: #2d3748;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn:hover {
+  background: #e2e8f0;
+}
+
+.mode-btn.active {
+  background: #3498db;
+  border-color: #2c81d3;
+  color: white;
+}
+
 .chapter-ai-summary-box h3 {
   color: #667eea;
   font-size: 20px;
@@ -154,7 +183,14 @@
 }
 
 .chapter-page-wrapper {
-  margin-bottom: 10px;
+  margin-bottom: 18px;
+}
+
+.chapter-page-number {
+  text-align: right;
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 8px;
 }
 
 .chapter-page {
@@ -164,6 +200,16 @@
   box-shadow: none;
   display: block;
   margin: 0 auto;
+}
+
+.chapter-text-content {
+  text-align: left;
+  color: #2c3e50;
+  line-height: 1.8;
+}
+
+.chapter-text-content p {
+  margin-bottom: 1rem;
 }
 
 .no-content {
@@ -197,6 +243,14 @@
 .dark .chapter-ai-summary-box {
   background: #2a2a2a !important;
   border-color: rgba(102, 126, 234, 0.4);
+}
+
+.dark .chapter-page-number {
+  color: #cbd5e1;
+}
+
+.dark .chapter-text-content {
+  color: #f3f4f6;
 }
 
 .dark .chapter-ai-summary-content {
