@@ -210,6 +210,14 @@
 
 .chapter-text-content p {
   margin-bottom: 1rem;
+  transition: background-color 0.3s ease;
+}
+
+.chapter-paragraph.current-audio-paragraph {
+  background-color: rgba(52, 152, 219, 0.1);
+  border-left: 4px solid #3498db;
+  padding-left: 10px;
+  border-radius: 4px;
 }
 
 .no-content {
@@ -251,6 +259,11 @@
 
 .dark .chapter-text-content {
   color: #f3f4f6;
+}
+
+.dark .chapter-paragraph.current-audio-paragraph {
+  background-color: rgba(102, 126, 234, 0.2);
+  border-left-color: #667eea;
 }
 
 .dark .chapter-ai-summary-content {
@@ -330,6 +343,11 @@
   flex: 1;
   color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
+}
+
+.audio-sync-info {
+  color: #4ade80;
+  font-weight: 500;
 }
 
 .audio-btn-close {

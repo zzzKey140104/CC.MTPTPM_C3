@@ -32,6 +32,11 @@ const ChapterReader = () => {
   const [audioError, setAudioError] = useState(null);
   const audioRef = useRef(null);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  
+  // Audio sync states
+  const [textParagraphs, setTextParagraphs] = useState([]);
+  const [currentParagraphIndex, setCurrentParagraphIndex] = useState(-1);
+  const paragraphRefs = useRef([]);
 
   const handleScrollToTop = () => {
     window.scrollTo({
@@ -134,12 +139,15 @@ const ChapterReader = () => {
     }
   }, [chapter, isAuthenticated, id]);
 
-  // Fetch chapter audio when chapter loads
+  // Parse text content into paragraphs when chapter loads
   useEffect(() => {
-    if (chapter && chapter.images && chapter.images.length > 0) {
-      fetchChapterAudio();
+    if (chapter && chapter.content) {
+      const content = chapter.content.toString();
+      const paragraphs = content.split('\n').filter(p => p.trim().length > 0);
+      setTextParagraphs(paragraphs);
+      paragraphRefs.current = paragraphs.map(() => React.createRef());
     }
-  }, [chapter?.id]);
+  }, [chapter]);
 
   const fetchChapterAudio = async () => {
     try {
@@ -195,9 +203,74 @@ const ChapterReader = () => {
     }
   };
 
-  const handleAudioEnded = () => {
-    setIsPlaying(false);
-  };
+  // Audio sync: track current time and scroll to corresponding paragraph
+  useEffect(() => {
+    if (!audioRef.current || !chapterAudio || textParagraphs.length === 0) return;
+
+    const audio = audioRef.current;
+    const duration = chapterAudio.duration || audio.duration;
+    
+    if (!duration) return;
+
+    const updateCurrentParagraph = () => {
+      const currentTime = audio.currentTime;
+      const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
+      
+      // Calculate cumulative character positions
+      let cumulativeChars = 0;
+      let targetIndex = -1;
+      
+      for (let i = 0; i < textParagraphs.length; i++) {
+        cumulativeChars += textParagraphs[i].length;
+        const paragraphStartTime = (cumulativeChars - textParagraphs[i].length) / totalChars * duration;
+        const paragraphEndTime = cumulativeChars / totalChars * duration;
+        
+        if (currentTime >= paragraphStartTime && currentTime <= paragraphEndTime) {
+          targetIndex = i;
+          break;
+        }
+      }
+      
+      if (targetIndex !== currentParagraphIndex) {
+        setCurrentParagraphIndex(targetIndex);
+        
+        // Scroll to the paragraph if it's different
+        if (targetIndex >= 0 && paragraphRefs.current[targetIndex]?.current) {
+          const element = paragraphRefs.current[targetIndex].current;
+          const elementTop = element.offsetTop;
+          const containerTop = contentRef.current?.offsetTop || 0;
+          const scrollTop = elementTop + containerTop - 100; // Offset for better visibility
+          
+          window.scrollTo({
+            top: scrollTop,
+            behavior: 'smooth'
+          });
+        }
+      }
+    };
+
+    const handleTimeUpdate = () => {
+      updateCurrentParagraph();
+    };
+
+    const handlePlay = () => {
+      setIsPlaying(true);
+    };
+
+    const handlePause = () => {
+      setIsPlaying(false);
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+    };
+  }, [chapterAudio, textParagraphs, currentParagraphIndex]);
 
   const formatDuration = (seconds) => {
     if (!seconds) return '0:00';
@@ -428,6 +501,11 @@ const ChapterReader = () => {
                 </button>
                 <div className="audio-info">
                   <span>{chapterAudio.text_content?.length || 0} ký tự đã trích xuất</span>
+                  {isPlaying && currentParagraphIndex >= 0 && (
+                    <span className="audio-sync-info">
+                      • Đang đọc đoạn {currentParagraphIndex + 1}/{textParagraphs.length}
+                    </span>
+                  )}
                 </div>
                 <button 
                   className="audio-btn-close"
@@ -575,8 +653,14 @@ const ChapterReader = () => {
             }).filter(Boolean) // Lọc bỏ null
           ) : displayMode === 'text' && canShowText ? (
             <div className="chapter-text-content">
-              {chapter.content.toString().split('\n').map((paragraph, index) => (
-                paragraph.trim() ? <p key={index}>{paragraph.trim()}</p> : null
+              {textParagraphs.map((paragraph, index) => (
+                <p 
+                  key={index} 
+                  ref={paragraphRefs.current[index]}
+                  className={`chapter-paragraph ${index === currentParagraphIndex ? 'current-audio-paragraph' : ''}`}
+                >
+                  {paragraph.trim()}
+                </p>
               ))}
             </div>
           ) : (
