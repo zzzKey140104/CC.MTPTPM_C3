@@ -214,10 +214,18 @@
 }
 
 .chapter-paragraph.current-audio-paragraph {
-  background-color: rgba(52, 152, 219, 0.1);
+  background: linear-gradient(90deg, rgba(52, 152, 219, 0.1) 0%, rgba(52, 152, 219, 0.05) 100%);
   border-left: 4px solid #3498db;
   padding-left: 10px;
   border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(52, 152, 219, 0.2);
+  transform: translateX(0);
+}
+
+.audio-indicator {
+  color: #3498db;
+  font-weight: bold;
+  margin-left: 5px;
 }
 
 .no-content {
@@ -262,8 +270,25 @@
 }
 
 .dark .chapter-paragraph.current-audio-paragraph {
-  background-color: rgba(102, 126, 234, 0.2);
+  background: linear-gradient(90deg, rgba(102, 126, 234, 0.2) 0%, rgba(102, 126, 234, 0.1) 100%);
   border-left-color: #667eea;
+  box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.dark .progress-text span {
+  color: #e0e0e0;
+}
+
+.dark .progress-bar {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dark .chapter-page-wrapper.current-audio-page .chapter-page-number {
+  background-color: rgba(102, 126, 234, 0.9);
+}
+
+.dark .chapter-page-wrapper.current-audio-page::before {
+  border-color: #667eea;
 }
 
 .dark .chapter-ai-summary-content {
@@ -277,6 +302,70 @@
 /* Audio Section */
 .chapter-audio-section {
   margin-bottom: 20px;
+}
+
+.audio-skip-controls {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.audio-btn-skip {
+  font-size: 16px;
+  padding: 8px 12px;
+}
+
+.audio-progress-info {
+  flex: 1;
+  margin: 0 15px;
+}
+
+.progress-text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.progress-text span {
+  font-size: 14px;
+  color: var(--text-color, #2c3e50);
+}
+
+.progress-bar {
+  width: 100%;
+  height: 6px;
+  background-color: rgba(0, 0, 0, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #3498db 0%, #2980b9 100%);
+  border-radius: 3px;
+  transition: width 0.3s ease;
+}
+
+.chapter-page-wrapper.current-audio-page {
+  position: relative;
+}
+
+.chapter-page-wrapper.current-audio-page .chapter-page-number {
+  background-color: rgba(52, 152, 219, 0.9);
+  color: white;
+}
+
+.chapter-page-wrapper.current-audio-page::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  border: 3px solid #3498db;
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 1;
 }
 
 .audio-player-container {

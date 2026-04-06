@@ -6,6 +6,7 @@ import { addReadingHistory, getChaptersByComicId, summarizeChapter, getChapterAu
 import Loading from '../components/common/Loading';
 import CommentsSection from '../components/features/CommentsSection';
 import { formatDate, getImageUrl } from '../utils/helpers';
+import { motion, AnimatePresence } from 'framer-motion';
 import './ChapterReader.css';
 
 const ChapterReader = () => {
@@ -29,14 +30,34 @@ const ChapterReader = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [loadingAudio, setLoadingAudio] = useState(false);
   const [creatingAudio, setCreatingAudio] = useState(false);
-  const [audioError, setAudioError] = useState(null);
+
   const audioRef = useRef(null);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
-  
+
   // Audio sync states
   const [textParagraphs, setTextParagraphs] = useState([]);
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(-1);
+  const [currentImageIndex, setCurrentImageIndex] = useState(-1);
   const paragraphRefs = useRef([]);
+  const imageRefs = useRef([]);
+
+  // Parse images from chapter data
+  const images = React.useMemo(() => {
+    if (!chapter?.images) return [];
+
+    if (typeof chapter.images === 'string') {
+      try {
+        const parsed = JSON.parse(chapter.images);
+        return Array.isArray(parsed) ? parsed.filter(img => img && img.trim()) : [];
+      } catch (e) {
+        console.error('Error parsing images:', e, 'Raw images:', chapter.images);
+        return [];
+      }
+    } else if (Array.isArray(chapter.images)) {
+      return chapter.images.filter(img => img && img.trim());
+    }
+    return [];
+  }, [chapter?.images]);
 
   const handleScrollToTop = () => {
     window.scrollTo({
@@ -149,20 +170,14 @@ const ChapterReader = () => {
     }
   }, [chapter]);
 
-  const fetchChapterAudio = async () => {
-    try {
-      setLoadingAudio(true);
-      const response = await getChapterAudio(id);
-      if (response.data.success && response.data.hasAudio) {
-        setChapterAudio(response.data.audio);
-        setShowAudioPlayer(true);
-      }
-    } catch (error) {
-      console.error('Error fetching chapter audio:', error);
-    } finally {
-      setLoadingAudio(false);
+  // Initialize image refs when images change
+  useEffect(() => {
+    if (images.length > 0) {
+      imageRefs.current = images.map(() => React.createRef());
     }
-  };
+  }, [images]);
+
+
 
   const handleCreateAudio = async () => {
     if (!isAuthenticated) {
@@ -172,12 +187,11 @@ const ChapterReader = () => {
 
     try {
       setCreatingAudio(true);
-      setAudioError(null);
       const response = await createChapterAudio(id, {
         voice: 'vi-VN-HonMyBellNeural',
         rate: '+10%'
       });
-      
+
       if (response.data.success) {
         setChapterAudio(response.data.audio);
         setShowAudioPlayer(true);
@@ -185,7 +199,6 @@ const ChapterReader = () => {
       }
     } catch (error) {
       console.error('Error creating chapter audio:', error);
-      setAudioError(error.response?.data?.message || 'Lỗi khi tạo audio');
       alert('Lỗi khi tạo audio: ' + (error.response?.data?.message || error.message));
     } finally {
       setCreatingAudio(false);
@@ -203,54 +216,134 @@ const ChapterReader = () => {
     }
   };
 
-  // Audio sync: track current time and scroll to corresponding paragraph
-  useEffect(() => {
-    if (!audioRef.current || !chapterAudio || textParagraphs.length === 0) return;
+  const skipToNext = () => {
+    if (!audioRef.current || !chapterAudio) return;
 
     const audio = audioRef.current;
     const duration = chapterAudio.duration || audio.duration;
-    
+
+    if (readMode === 'text' && textParagraphs.length > 0) {
+      const nextIndex = Math.min(currentParagraphIndex + 1, textParagraphs.length - 1);
+      const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
+      let cumulativeChars = 0;
+
+      for (let i = 0; i <= nextIndex; i++) {
+        cumulativeChars += textParagraphs[i].length;
+      }
+
+      const targetTime = (cumulativeChars / totalChars) * duration;
+      audio.currentTime = Math.max(0, targetTime - 1); // Start 1 second before
+    } else if (readMode === 'images' && images.length > 0) {
+      const nextIndex = Math.min(currentImageIndex + 1, images.length - 1);
+      const targetTime = ((nextIndex + 1) / images.length) * duration;
+      audio.currentTime = Math.max(0, targetTime - 1);
+    }
+  };
+
+  const skipToPrev = () => {
+    if (!audioRef.current || !chapterAudio) return;
+
+    const audio = audioRef.current;
+    const duration = chapterAudio.duration || audio.duration;
+
+    if (readMode === 'text' && textParagraphs.length > 0) {
+      const prevIndex = Math.max(currentParagraphIndex - 1, 0);
+      const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
+      let cumulativeChars = 0;
+
+      for (let i = 0; i < prevIndex; i++) {
+        cumulativeChars += textParagraphs[i].length;
+      }
+
+      const targetTime = (cumulativeChars / totalChars) * duration;
+      audio.currentTime = targetTime;
+    } else if (readMode === 'images' && images.length > 0) {
+      const prevIndex = Math.max(currentImageIndex - 1, 0);
+      const targetTime = (prevIndex / images.length) * duration;
+      audio.currentTime = targetTime;
+    }
+  };
+
+  const handleAudioEnded = () => {
+    setIsPlaying(false);
+    setCurrentParagraphIndex(-1);
+    setCurrentImageIndex(-1);
+  };
+
+  // Audio sync: track current time and scroll to corresponding content
+  useEffect(() => {
+    if (!audioRef.current || !chapterAudio) return;
+
+    const audio = audioRef.current;
+    const duration = chapterAudio.duration || audio.duration;
+
     if (!duration) return;
 
-    const updateCurrentParagraph = () => {
+    const updateCurrentContent = () => {
       const currentTime = audio.currentTime;
-      const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
-      
-      // Calculate cumulative character positions
-      let cumulativeChars = 0;
-      let targetIndex = -1;
-      
-      for (let i = 0; i < textParagraphs.length; i++) {
-        cumulativeChars += textParagraphs[i].length;
-        const paragraphStartTime = (cumulativeChars - textParagraphs[i].length) / totalChars * duration;
-        const paragraphEndTime = cumulativeChars / totalChars * duration;
-        
-        if (currentTime >= paragraphStartTime && currentTime <= paragraphEndTime) {
-          targetIndex = i;
-          break;
+
+      if (readMode === 'text' && textParagraphs.length > 0) {
+        // Sync for text mode
+        const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
+        let cumulativeChars = 0;
+        let targetIndex = -1;
+
+        for (let i = 0; i < textParagraphs.length; i++) {
+          cumulativeChars += textParagraphs[i].length;
+          const paragraphStartTime = (cumulativeChars - textParagraphs[i].length) / totalChars * duration;
+          const paragraphEndTime = cumulativeChars / totalChars * duration;
+
+          if (currentTime >= paragraphStartTime && currentTime <= paragraphEndTime) {
+            targetIndex = i;
+            break;
+          }
         }
-      }
-      
-      if (targetIndex !== currentParagraphIndex) {
-        setCurrentParagraphIndex(targetIndex);
-        
-        // Scroll to the paragraph if it's different
-        if (targetIndex >= 0 && paragraphRefs.current[targetIndex]?.current) {
-          const element = paragraphRefs.current[targetIndex].current;
-          const elementTop = element.offsetTop;
-          const containerTop = contentRef.current?.offsetTop || 0;
-          const scrollTop = elementTop + containerTop - 100; // Offset for better visibility
-          
-          window.scrollTo({
-            top: scrollTop,
-            behavior: 'smooth'
-          });
+
+        if (targetIndex !== currentParagraphIndex) {
+          setCurrentParagraphIndex(targetIndex);
+          setCurrentImageIndex(-1); // Reset image index
+
+          // Scroll to the paragraph if it's different and not visible
+          if (targetIndex >= 0 && paragraphRefs.current[targetIndex]?.current) {
+            const element = paragraphRefs.current[targetIndex].current;
+            const rect = element.getBoundingClientRect();
+            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+
+            if (!isVisible) {
+              element.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+              });
+            }
+          }
+        }
+      } else if (readMode === 'images' && images.length > 0) {
+        // Sync for images mode
+        const targetIndex = Math.floor((currentTime / duration) * images.length);
+
+        if (targetIndex !== currentImageIndex && targetIndex < images.length) {
+          setCurrentImageIndex(targetIndex);
+          setCurrentParagraphIndex(-1); // Reset paragraph index
+
+          // Scroll to the image if it's different and not visible
+          if (imageRefs.current[targetIndex]?.current) {
+            const element = imageRefs.current[targetIndex].current;
+            const rect = element.getBoundingClientRect();
+            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+
+            if (!isVisible) {
+              element.scrollIntoView({
+                behavior: 'smooth',
+                block: 'center'
+              });
+            }
+          }
         }
       }
     };
 
     const handleTimeUpdate = () => {
-      updateCurrentParagraph();
+      updateCurrentContent();
     };
 
     const handlePlay = () => {
@@ -270,7 +363,7 @@ const ChapterReader = () => {
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
     };
-  }, [chapterAudio, textParagraphs, currentParagraphIndex]);
+  }, [chapterAudio, textParagraphs, currentParagraphIndex, currentImageIndex, readMode, images]);
 
   const formatDuration = (seconds) => {
     if (!seconds) return '0:00';
@@ -401,21 +494,7 @@ const ChapterReader = () => {
     );
   }
 
-  // Parse images - đảm bảo là array
-  let images = [];
-  if (chapter.images) {
-    if (typeof chapter.images === 'string') {
-      try {
-        const parsed = JSON.parse(chapter.images);
-        images = Array.isArray(parsed) ? parsed : [];
-      } catch (e) {
-        console.error('Error parsing images:', e, 'Raw images:', chapter.images);
-        images = [];
-      }
-    } else if (Array.isArray(chapter.images)) {
-      images = chapter.images.filter(img => img && img.trim()); // Lọc bỏ null/empty
-    }
-  }
+
 
   const hasTextContent = chapter.content && chapter.content.toString().trim() !== '';
   const canShowText = hasTextContent;
@@ -472,52 +551,103 @@ const ChapterReader = () => {
         </div>
 
         {/* Audio Player Section */}
-        {showAudioPlayer && chapterAudio && chapterAudio.audio_url && (
-          <div className="chapter-audio-section">
-            <div className="audio-player-container">
-              <div className="audio-player-header">
-                <span className="audio-icon">🎧</span>
-                <span className="audio-title">Audio Chương</span>
-                {chapterAudio.duration && (
-                  <span className="audio-duration">({formatDuration(chapterAudio.duration)})</span>
-                )}
-              </div>
-              <div className="audio-player-controls">
-                <audio
-                  ref={audioRef}
-                  src={chapterAudio.audio_url}
-                  onEnded={handleAudioEnded}
-                  onError={(e) => {
-                    console.error('Audio playback error:', e);
-                    setAudioError('Không thể phát audio');
-                  }}
-                />
-                <button 
-                  className={`audio-btn ${isPlaying ? 'playing' : ''}`}
-                  onClick={togglePlayPause}
-                  title={isPlaying ? 'Tạm dừng' : 'Phát audio'}
-                >
-                  {isPlaying ? '⏸️' : '▶️'}
-                </button>
-                <div className="audio-info">
-                  <span>{chapterAudio.text_content?.length || 0} ký tự đã trích xuất</span>
-                  {isPlaying && currentParagraphIndex >= 0 && (
-                    <span className="audio-sync-info">
-                      • Đang đọc đoạn {currentParagraphIndex + 1}/{textParagraphs.length}
-                    </span>
+        <AnimatePresence>
+          {showAudioPlayer && chapterAudio && chapterAudio.audio_url && (
+            <motion.div
+              className="chapter-audio-section"
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+            >
+              <div className="audio-player-container">
+                <div className="audio-player-header">
+                  <span className="audio-icon">🎧</span>
+                  <span className="audio-title">Audio Chương</span>
+                  {chapterAudio.duration && (
+                    <span className="audio-duration">({formatDuration(chapterAudio.duration)})</span>
                   )}
                 </div>
-                <button 
-                  className="audio-btn-close"
-                  onClick={() => setShowAudioPlayer(false)}
-                  title="Ẩn audio player"
-                >
-                  ✕
-                </button>
+                <div className="audio-player-controls">
+                  <audio
+                    ref={audioRef}
+                    src={chapterAudio.audio_url}
+                    onEnded={handleAudioEnded}
+                    onError={(e) => {
+                      console.error('Audio playback error:', e);
+                      alert('Không thể phát audio');
+                    }}
+                  />
+
+                  {/* Skip Controls */}
+                  <div className="audio-skip-controls">
+                    <button
+                      className="audio-btn audio-btn-skip"
+                      onClick={skipToPrev}
+                      title="Đoạn trước"
+                      disabled={!chapterAudio}
+                    >
+                      ⏮️
+                    </button>
+                    <button
+                      className={`audio-btn ${isPlaying ? 'playing' : ''}`}
+                      onClick={togglePlayPause}
+                      title={isPlaying ? 'Tạm dừng' : 'Phát audio'}
+                    >
+                      {isPlaying ? '⏸️' : '▶️'}
+                    </button>
+                    <button
+                      className="audio-btn audio-btn-skip"
+                      onClick={skipToNext}
+                      title="Đoạn sau"
+                      disabled={!chapterAudio}
+                    >
+                      ⏭️
+                    </button>
+                  </div>
+
+                  {/* Progress Info */}
+                  <div className="audio-progress-info">
+                    {readMode === 'text' && textParagraphs.length > 0 && (
+                      <div className="progress-text">
+                        <span>Đoạn: {currentParagraphIndex >= 0 ? currentParagraphIndex + 1 : 0}/{textParagraphs.length}</span>
+                        <div className="progress-bar">
+                          <div
+                            className="progress-fill"
+                            style={{
+                              width: `${textParagraphs.length > 0 ? ((currentParagraphIndex + 1) / textParagraphs.length) * 100 : 0}%`
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                    {readMode === 'images' && images.length > 0 && (
+                      <div className="progress-text">
+                        <span>Trang: {currentImageIndex >= 0 ? currentImageIndex + 1 : 0}/{images.length}</span>
+                        <div className="progress-bar">
+                          <div
+                            className="progress-fill"
+                            style={{
+                              width: `${images.length > 0 ? ((currentImageIndex + 1) / images.length) * 100 : 0}%`
+                            }}
+                          ></div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    className="audio-btn-close"
+                    onClick={() => setShowAudioPlayer(false)}
+                    title="Ẩn audio player"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-        )}
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Audio Create Button (when no audio exists) */}
         {!chapterAudio && !loadingAudio && (
@@ -625,16 +755,31 @@ const ChapterReader = () => {
                 console.warn(`Invalid image at index ${index}:`, image);
                 return null;
               }
-              
+
               const imageUrl = getImageUrl(image);
               if (!imageUrl) {
                 console.warn(`Failed to generate URL for image:`, image);
                 return null;
               }
-              
+
+              const isCurrentImage = index === currentImageIndex;
+
               return (
-                <div key={index} className="chapter-page-wrapper">
-                  <div className="chapter-page-number">Trang {index + 1}</div>
+                <motion.div
+                  key={index}
+                  ref={imageRefs.current[index]}
+                  className={`chapter-page-wrapper ${isCurrentImage ? 'current-audio-page' : ''}`}
+                  initial={{ opacity: 0.8 }}
+                  animate={{
+                    opacity: isCurrentImage ? 1 : 0.8,
+                    scale: isCurrentImage ? 1.02 : 1
+                  }}
+                  transition={{ duration: 0.3 }}
+                >
+                  <div className="chapter-page-number">
+                    Trang {index + 1}
+                    {isCurrentImage && <span className="audio-indicator">🎧</span>}
+                  </div>
                   <img
                     src={imageUrl}
                     alt={`Page ${index + 1}`}
@@ -648,20 +793,30 @@ const ChapterReader = () => {
                       console.log('Successfully loaded image:', imageUrl);
                     }}
                   />
-                </div>
+                </motion.div>
               );
             }).filter(Boolean) // Lọc bỏ null
           ) : displayMode === 'text' && canShowText ? (
             <div className="chapter-text-content">
-              {textParagraphs.map((paragraph, index) => (
-                <p 
-                  key={index} 
-                  ref={paragraphRefs.current[index]}
-                  className={`chapter-paragraph ${index === currentParagraphIndex ? 'current-audio-paragraph' : ''}`}
-                >
-                  {paragraph.trim()}
-                </p>
-              ))}
+              {textParagraphs.map((paragraph, index) => {
+                const isCurrentParagraph = index === currentParagraphIndex;
+                return (
+                  <motion.p
+                    key={index}
+                    ref={paragraphRefs.current[index]}
+                    className={`chapter-paragraph ${isCurrentParagraph ? 'current-audio-paragraph' : ''}`}
+                    initial={{ opacity: 0.8 }}
+                    animate={{
+                      opacity: isCurrentParagraph ? 1 : 0.8,
+                      x: isCurrentParagraph ? 10 : 0
+                    }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    {paragraph.trim()}
+                    {isCurrentParagraph && <span className="audio-indicator"> 🎧</span>}
+                  </motion.p>
+                );
+              })}
             </div>
           ) : (
             <div className="no-content">
