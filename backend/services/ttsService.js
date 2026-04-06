@@ -1,6 +1,7 @@
-const edgeTTS = require('edge-tts');
 const fs = require('fs').promises;
 const path = require('path');
+const say = require('say');
+const gTTS = require('gtts');
 
 class TtsService {
   constructor() {
@@ -8,6 +9,18 @@ class TtsService {
     this.voice = 'vi-VN-HonMyBellNeural';
     this.rate = '+10%';
     this.volume = '+0%';
+    this.edgeTTS = null;
+    this.preferLocal = true;
+    this.localVoice = null;
+    this.localVoices = null;
+  }
+
+  async getEdgeTTS() {
+    if (!this.edgeTTS) {
+      // edge-tts is ESM-only in newer versions, so load it lazily via dynamic import.
+      this.edgeTTS = await import('edge-tts/out/index.js');
+    }
+    return this.edgeTTS;
   }
 
   async ensureOutputDir() {
@@ -25,7 +38,8 @@ class TtsService {
       voice = this.voice,
       rate = this.rate,
       volume = this.volume,
-      outputFilename = null
+      outputFilename = null,
+      preferLocal = this.preferLocal
     } = options;
 
     if (!text || text.trim().length === 0) {
@@ -34,11 +48,76 @@ class TtsService {
 
     await this.ensureOutputDir();
 
-    const filename = outputFilename || `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
-    const outputPath = path.join(this.outputDir, filename);
-    const relativeUrl = `/uploads/audios/${filename}`;
+    const buildFallbackFilename = () =>
+      (outputFilename || `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.wav`).replace(/\.mp3$/i, '.wav');
 
-    try {
+    const runLocalTts = async () => {
+      const fallbackFilename = buildFallbackFilename();
+      const fallbackOutputPath = path.join(this.outputDir, fallbackFilename);
+      const fallbackUrl = `/uploads/audios/${fallbackFilename}`;
+      const fallbackSpeed = this.getSaySpeedFromRate(rate);
+
+      const localVoice = await this.getPreferredLocalVoice(voice);
+      await new Promise((resolve, reject) => {
+        say.export(text, localVoice, fallbackSpeed, fallbackOutputPath, (fallbackError) => {
+          if (fallbackError) return reject(fallbackError);
+          resolve();
+        });
+      });
+
+      const fallbackStats = await fs.stat(fallbackOutputPath);
+      console.log(`✅ Local TTS audio file created: ${fallbackFilename}`);
+
+      return {
+        success: true,
+        provider: 'windows-sapi',
+        filename: fallbackFilename,
+        path: fallbackOutputPath,
+        url: fallbackUrl,
+        size: fallbackStats.size,
+        textLength: text.length,
+        voice: localVoice || 'default',
+        rate: rate,
+        volume: volume
+      };
+    };
+
+    const runGoogleTranslateTts = async () => {
+      const filename = (outputFilename || `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`)
+        .replace(/\.wav$/i, '.mp3');
+      const outputPath = path.join(this.outputDir, filename);
+      const relativeUrl = `/uploads/audios/${filename}`;
+      const normalized = this.normalizeTextForSpeech(text);
+
+      await new Promise((resolve, reject) => {
+        const tts = new gTTS(normalized, 'vi');
+        tts.save(outputPath, (error) => {
+          if (error) return reject(error);
+          resolve();
+        });
+      });
+
+      const stats = await fs.stat(outputPath);
+      console.log(`✅ Google Translate TTS audio file created: ${filename}`);
+      return {
+        success: true,
+        provider: 'google-translate-tts',
+        filename,
+        path: outputPath,
+        url: relativeUrl,
+        size: stats.size,
+        textLength: text.length,
+        voice: 'vi-google',
+        rate,
+        volume
+      };
+    };
+
+    const runEdgeTts = async () => {
+      const edgeTTS = await this.getEdgeTTS();
+      const filename = outputFilename || `audio_${Date.now()}_${Math.random().toString(36).substring(7)}.mp3`;
+      const outputPath = path.join(this.outputDir, filename);
+      const relativeUrl = `/uploads/audios/${filename}`;
       console.log('🎤 Starting text-to-speech conversion...');
       console.log(`📝 Text length: ${text.length} characters`);
       console.log(`🎙️ Voice: ${voice}`);
@@ -60,6 +139,7 @@ class TtsService {
 
       return {
         success: true,
+        provider: 'edge-tts',
         filename: filename,
         path: outputPath,
         url: relativeUrl,
@@ -69,9 +149,38 @@ class TtsService {
         rate: rate,
         volume: volume
       };
-    } catch (error) {
-      console.error('❌ TTS conversion failed:', error);
-      throw new Error(`TTS conversion failed: ${error.message}`);
+    };
+
+    if (preferLocal) {
+      try {
+        console.log('🔊 Local-first TTS mode enabled');
+        const localVoice = await this.getPreferredLocalVoice(voice);
+        const hasVietnameseLocalVoice = localVoice && /vietnam|vi-vn|microsoft an/i.test(localVoice);
+        if (hasVietnameseLocalVoice) {
+          return await runLocalTts();
+        }
+
+        // No local Vietnamese voice found -> prefer Vietnamese online fallback before English local voice.
+        console.warn('⚠️ No local Vietnamese voice found, switching to Google Translate TTS (vi)...');
+        return await runGoogleTranslateTts();
+      } catch (localError) {
+        console.warn('⚠️ Preferred local/Google TTS failed, fallback to edge-tts:', localError.message);
+      }
+    }
+
+    try {
+      return await runEdgeTts();
+    } catch (edgeError) {
+      console.error('❌ edge-tts conversion failed:', edgeError);
+      if (!preferLocal) {
+        console.warn('⚠️ edge-tts failed, fallback to local TTS...');
+        try {
+          return await runLocalTts();
+        } catch (localError) {
+          throw new Error(`TTS conversion failed: ${localError.message}`);
+        }
+      }
+      throw new Error(`TTS conversion failed: ${edgeError.message}`);
     }
   }
 
@@ -97,6 +206,7 @@ class TtsService {
     }
 
     try {
+      const edgeTTS = await this.getEdgeTTS();
       console.log('🎤 Starting text-to-speech stream...');
       const audioBuffer = await edgeTTS.tts(text, {
         voice: voice,
@@ -126,7 +236,29 @@ class TtsService {
   }
 
   async getAvailableVoices() {
+    const localVoices = await this.getInstalledLocalVoices();
+    if (localVoices.length > 0) {
+      const localMapped = localVoices.map((voiceName) => ({
+        name: voiceName,
+        fullName: voiceName,
+        friendlyName: `${voiceName} (Local SAPI)`,
+        gender: /zira|an|female|girl/i.test(voiceName) ? 'Female' : 'Unknown',
+        locale: /vietnam|vi-vn|an/i.test(voiceName) ? 'vi-VN' : 'en-US',
+        provider: 'windows-sapi'
+      }));
+      localMapped.push({
+        name: 'vi-google',
+        fullName: 'Google Translate Vietnamese',
+        friendlyName: 'Google Translate Vietnamese (fallback)',
+        gender: 'Female',
+        locale: 'vi-VN',
+        provider: 'google-translate-tts'
+      });
+      return localMapped;
+    }
+
     try {
+      const edgeTTS = await this.getEdgeTTS();
       const voices = await edgeTTS.getVoices();
       return voices.map(v => ({
         name: v.ShortName,
@@ -135,7 +267,8 @@ class TtsService {
         gender: v.Gender,
         locale: v.Locale,
         categories: v.VoiceTag?.ContentCategories || [],
-        personalities: v.VoiceTag?.VoicePersonalities || []
+        personalities: v.VoiceTag?.VoicePersonalities || [],
+        provider: 'edge-tts'
       }));
     } catch (error) {
       console.error('❌ Failed to get voices:', error);
@@ -172,6 +305,48 @@ class TtsService {
     const percent = parseInt(match[2]) * sign;
     
     return 1 + (percent / 100);
+  }
+
+  getSaySpeedFromRate(rate) {
+    const multiplier = this.getRateMultiplier(rate);
+    // Keep local TTS speed in a safe range.
+    return Math.max(0.5, Math.min(2, Number(multiplier) || 1));
+  }
+
+  normalizeTextForSpeech(text) {
+    if (!text) return '';
+    return String(text)
+      .replace(/[^\S\r\n]+/g, ' ')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  async getPreferredLocalVoice(preferredVoice = '') {
+    const localVoices = await this.getInstalledLocalVoices();
+    if (!localVoices.length) return null;
+
+    if (preferredVoice) {
+      const matchedPreferred = localVoices.find((v) => v.toLowerCase() === preferredVoice.toLowerCase());
+      if (matchedPreferred) return matchedPreferred;
+    }
+
+    const matchedVietnamese = localVoices.find((v) => /vietnam|vi-vn|microsoft an/i.test(v));
+    if (matchedVietnamese) return matchedVietnamese;
+
+    const matchedEnglish = localVoices.find((v) => /zira|david/i.test(v));
+    return matchedEnglish || localVoices[0] || null;
+  }
+
+  async getInstalledLocalVoices() {
+    if (Array.isArray(this.localVoices)) return this.localVoices;
+
+    this.localVoices = await new Promise((resolve) => {
+      say.getInstalledVoices((error, voices) => {
+        if (error || !Array.isArray(voices)) return resolve([]);
+        resolve(voices.filter(Boolean));
+      });
+    });
+    return this.localVoices;
   }
 }
 

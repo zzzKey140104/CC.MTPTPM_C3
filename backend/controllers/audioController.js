@@ -44,10 +44,6 @@ class AudioController {
         return errorResponse(res, 'Chương không có hình ảnh để tạo audio', 400);
       }
 
-      if (audioService.isProcessing(chapterId)) {
-        return errorResponse(res, 'Chương đang được xử lý audio', 409);
-      }
-
       const result = await audioService.createChapterAudio(chapterId, {
         voice: voice || 'vi-VN-HonMyBellNeural',
         rate: rate || '+10%',
@@ -59,12 +55,18 @@ class AudioController {
         audio: result.audio,
         isNew: result.isNew,
         textLength: result.audio?.text_content?.length || 0,
-        duration: result.audio?.duration || 0
+        duration: result.audio?.duration || 0,
+        status: result.status || result.audio?.status || 'completed',
+        provider: result.provider || result.audio?.provider || null
       });
 
     } catch (error) {
       console.error('Error creating chapter audio:', error);
-      return errorResponse(res, error.message || 'Lỗi server', 500);
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.message || 'Lỗi server',
+        errorCode: error.errorCode || 'audio_pipeline_failed'
+      });
     }
   }
 
@@ -99,6 +101,17 @@ class AudioController {
     }
   }
 
+  async getReadiness(req, res) {
+    try {
+      const { chapterId } = req.params;
+      const readiness = await audioService.getReadiness(chapterId);
+      return successResponse(res, readiness);
+    } catch (error) {
+      console.error('Error getting audio readiness:', error);
+      return errorResponse(res, 'Lỗi server', 500);
+    }
+  }
+
   async getAvailableVoices(req, res) {
     try {
       const voices = await audioService.getAvailableVoices();
@@ -121,7 +134,8 @@ class AudioController {
         rate, 
         startChapter, 
         endChapter,
-        chaptersList
+        chaptersList,
+        forceRecreate = false
       } = req.body;
 
       const comic = await Comic.findById(comicId);

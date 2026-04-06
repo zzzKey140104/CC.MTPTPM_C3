@@ -1,6 +1,11 @@
 const db = require('../config/database');
 
 class ChapterAudio {
+  static async ensureTableExists() {
+    const [tables] = await db.promise.query('SHOW TABLES LIKE "chapter_audios"');
+    return tables.length > 0;
+  }
+
   static async findByChapterId(chapterId) {
     const [rows] = await db.promise.query(
       'SELECT * FROM chapter_audios WHERE chapter_id = ?',
@@ -10,11 +15,20 @@ class ChapterAudio {
   }
 
   static async create(data) {
-    const { chapter_id, text_content, audio_url, duration, status, error_message } = data;
+    const { chapter_id, text_content, audio_url, duration, status, error_message, error_code, provider } = data;
     const [result] = await db.promise.query(
-      `INSERT INTO chapter_audios (chapter_id, text_content, audio_url, duration, status, error_message) 
-       VALUES (?, ?, ?, ?, ?, ?)`,
-      [chapter_id, text_content, audio_url, duration, status || 'pending', error_message || null]
+      `INSERT INTO chapter_audios (chapter_id, text_content, audio_url, duration, status, error_message, error_code, provider) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        chapter_id,
+        text_content,
+        audio_url,
+        duration,
+        status || 'pending',
+        error_message || null,
+        error_code || null,
+        provider || null
+      ]
     );
     return result.insertId;
   }

@@ -2,10 +2,18 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useChapter } from '../hooks/useChapter';
 import { useAuth } from '../contexts/AuthContext';
-import { addReadingHistory, getChaptersByComicId, summarizeChapter, getChapterAudio, createChapterAudio } from '../services/api';
+import {
+  addReadingHistory,
+  getChaptersByComicId,
+  summarizeChapter,
+  getChapterAudio,
+  getAudioReadiness,
+  createChapterAudio
+} from '../services/api';
 import Loading from '../components/common/Loading';
 import CommentsSection from '../components/features/CommentsSection';
 import { formatDate, getImageUrl } from '../utils/helpers';
+import { API_BASE_URL } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import './ChapterReader.css';
 
@@ -40,6 +48,7 @@ const ChapterReader = () => {
   const [currentImageIndex, setCurrentImageIndex] = useState(-1);
   const paragraphRefs = useRef([]);
   const imageRefs = useRef([]);
+  const lastAutoScrollAtRef = useRef(0);
 
   // Parse images from chapter data
   const images = React.useMemo(() => {
@@ -58,6 +67,16 @@ const ChapterReader = () => {
     }
     return [];
   }, [chapter?.images]);
+
+  const audioUrl = React.useMemo(() => {
+    const rawAudioUrl = chapterAudio?.audio_url;
+    if (!rawAudioUrl || typeof rawAudioUrl !== 'string') return '';
+    if (/^https?:\/\//i.test(rawAudioUrl)) return rawAudioUrl;
+
+    const apiOrigin = API_BASE_URL.replace(/\/api\/?$/, '');
+    const normalizedPath = rawAudioUrl.startsWith('/') ? rawAudioUrl : `/${rawAudioUrl}`;
+    return `${apiOrigin}${normalizedPath}`;
+  }, [chapterAudio?.audio_url]);
 
   const handleScrollToTop = () => {
     window.scrollTo({
@@ -160,6 +179,50 @@ const ChapterReader = () => {
     }
   }, [chapter, isAuthenticated, id]);
 
+  // Load existing audio (if already generated) when chapter changes
+  useEffect(() => {
+    let isMounted = true;
+
+    const fetchChapterAudio = async () => {
+      try {
+        setLoadingAudio(true);
+        setChapterAudio(null);
+        setShowAudioPlayer(false);
+        setIsPlaying(false);
+
+        const readinessResponse = await getAudioReadiness(id);
+        const readiness = readinessResponse?.data?.data;
+
+        if (!isMounted || !readiness) return;
+
+        if (readiness.hasAudio && readiness.isReady && readiness.audioUrl) {
+          const response = await getChapterAudio(id);
+          const payload = response?.data?.data;
+          if (isMounted && payload?.hasAudio && payload?.audio?.audio_url) {
+            setChapterAudio(payload.audio);
+            setShowAudioPlayer(true);
+          }
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.error('Error loading chapter audio:', error);
+        }
+      } finally {
+        if (isMounted) {
+          setLoadingAudio(false);
+        }
+      }
+    };
+
+    if (id) {
+      fetchChapterAudio();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
   // Parse text content into paragraphs when chapter loads
   useEffect(() => {
     if (chapter && chapter.content) {
@@ -188,7 +251,6 @@ const ChapterReader = () => {
     try {
       setCreatingAudio(true);
       const response = await createChapterAudio(id, {
-        voice: 'vi-VN-HonMyBellNeural',
         rate: '+10%'
       });
 
@@ -309,7 +371,10 @@ const ChapterReader = () => {
             const rect = element.getBoundingClientRect();
             const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
 
-            if (!isVisible) {
+            const now = Date.now();
+            const canAutoScroll = now - lastAutoScrollAtRef.current > 1000;
+            if (!isVisible && canAutoScroll) {
+              lastAutoScrollAtRef.current = now;
               element.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center'
@@ -331,7 +396,10 @@ const ChapterReader = () => {
             const rect = element.getBoundingClientRect();
             const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
 
-            if (!isVisible) {
+            const now = Date.now();
+            const canAutoScroll = now - lastAutoScrollAtRef.current > 1000;
+            if (!isVisible && canAutoScroll) {
+              lastAutoScrollAtRef.current = now;
               element.scrollIntoView({
                 behavior: 'smooth',
                 block: 'center'
@@ -552,7 +620,7 @@ const ChapterReader = () => {
 
         {/* Audio Player Section */}
         <AnimatePresence>
-          {showAudioPlayer && chapterAudio && chapterAudio.audio_url && (
+          {showAudioPlayer && chapterAudio && audioUrl && (
             <motion.div
               className="chapter-audio-section"
               initial={{ opacity: 0, y: -20 }}
@@ -571,7 +639,7 @@ const ChapterReader = () => {
                 <div className="audio-player-controls">
                   <audio
                     ref={audioRef}
-                    src={chapterAudio.audio_url}
+                    src={audioUrl}
                     onEnded={handleAudioEnded}
                     onError={(e) => {
                       console.error('Audio playback error:', e);

@@ -4,6 +4,7 @@ const compression = require('compression');
 const dotenv = require('dotenv');
 const path = require('path');
 const db = require('./config/database');
+const ChapterAudio = require('./models/ChapterAudio');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 // Load environment variables
@@ -77,6 +78,17 @@ db.getConnection((err, connection) => {
     connection.release();
   }
 });
+
+// Warn early if audio table is missing in DB schema.
+ChapterAudio.ensureTableExists()
+  .then((exists) => {
+    if (!exists) {
+      console.warn('⚠️  Missing table: chapter_audios. Run migration: node database/migrations/add_chapter_audios_table.js');
+    }
+  })
+  .catch((error) => {
+    console.warn('⚠️  Could not verify chapter_audios table:', error.message);
+  });
 
 const PORT = Number(process.env.PORT || 5000);
 

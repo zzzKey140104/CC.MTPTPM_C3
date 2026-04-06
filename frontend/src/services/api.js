@@ -301,6 +301,10 @@ export const getAudioProcessingStatus = (chapterId) => {
   return api.get(`/audio/chapter/${chapterId}/status`);
 };
 
+export const getAudioReadiness = (chapterId) => {
+  return api.get(`/audio/chapter/${chapterId}/readiness`);
+};
+
 export const getAvailableVoices = () => {
   return api.get('/audio/voices');
 };

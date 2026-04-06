@@ -22,6 +22,32 @@ function absoluteUrl(url) {
   return `${POPS_BASE_URL}/${url}`;
 }
 
+function buildImageDedupKey(rawUrl = '') {
+  const normalized = absoluteUrl(rawUrl || '');
+  if (!normalized) return '';
+  // POPS often returns duplicate URLs that only differ by query (e.g. ?format=webp).
+  // Keep one canonical image per path to avoid duplicated pages.
+  return normalized.split('?')[0];
+}
+
+function dedupeChapterPages(pages = []) {
+  const out = [];
+  const seen = new Set();
+
+  for (const page of pages) {
+    const imageUrl = page?.imageUrl || '';
+    const dedupKey = buildImageDedupKey(imageUrl);
+    if (!dedupKey || seen.has(dedupKey)) continue;
+    seen.add(dedupKey);
+    out.push({
+      pageNumber: out.length + 1,
+      imageUrl
+    });
+  }
+
+  return out;
+}
+
 function isLikelyValidPopsComicUrl(url) {
   if (!url || typeof url !== 'string') return false;
   const normalized = url.trim();
@@ -388,12 +414,14 @@ function extractChapterImagesFromHtml(html = '') {
 
   const pushImage = (rawUrl) => {
     const normalized = absoluteUrl(rawUrl || '');
+    const dedupKey = buildImageDedupKey(normalized);
     if (!normalized) return;
+    if (!dedupKey) return;
     if (!/cms_comic|pops-comic-vn\.akamaized\.net/i.test(normalized)) return;
     if (!/\.(?:jpg|jpeg|png|webp)(?:\?|$)/i.test(normalized)) return;
     if (/logo|icon|avatar|thumbnail|placeholder/i.test(normalized)) return;
-    if (imageSet.has(normalized)) return;
-    imageSet.add(normalized);
+    if (imageSet.has(dedupKey)) return;
+    imageSet.add(dedupKey);
     images.push({
       pageNumber: images.length + 1,
       imageUrl: normalized
@@ -476,11 +504,12 @@ async function extractChapterImagesWithBrowser(urlCandidates = []) {
           const pushImage = (raw) => {
             if (!raw) return;
             const url = String(raw).trim().split(/\s+/)[0];
+            const dedupKey = url.split('?')[0];
             if (!/^https?:\/\//i.test(url)) return;
             if (!/cms_comic|pops-comic-vn\.akamaized\.net/i.test(url)) return;
             if (!/\.(jpg|jpeg|png|webp)(\?|$)/i.test(url)) return;
-            if (seen.has(url)) return;
-            seen.add(url);
+            if (!dedupKey || seen.has(dedupKey)) return;
+            seen.add(dedupKey);
             out.push({
               pageNumber: out.length + 1,
               imageUrl: url
@@ -599,7 +628,10 @@ async function crawlChaptersByClickingComicPage(comicUrl, maxChapters = 3) {
           if (!/^https?:\/\//i.test(value)) return;
           if (!/cms_comic|pops-comic-vn\.akamaized\.net/i.test(value)) return;
           if (!/\.(jpg|jpeg|png|webp)(\?|$)/i.test(value)) return;
-          urls.add(value.split(/\s+/)[0]);
+          const cleaned = value.split(/\s+/)[0];
+          const dedupKey = cleaned.split('?')[0];
+          if (!dedupKey) return;
+          urls.add(dedupKey);
         };
 
         document.querySelectorAll('img,source').forEach((el) => {
@@ -626,7 +658,7 @@ async function crawlChaptersByClickingComicPage(comicUrl, maxChapters = 3) {
           chapterUrl: chapterData.chapterUrl,
           chapterTitle: chapterData.chapterHeading || chapterTitle,
           chapterNumber: parseChapterNumber(chapterData.chapterUrl, chapterData.chapterHeading || chapterTitle),
-          pages: chapterData.images
+          pages: dedupeChapterPages(chapterData.images)
         });
       }
 
@@ -747,7 +779,8 @@ async function saveComicAndChapters({ comicUrl, comicData, chapters }) {
         [chapter.chapterUrl]
       );
       let chapterId;
-      const imagesJson = JSON.stringify(chapter.pages.map((p) => p.imageUrl));
+      const normalizedPages = dedupeChapterPages(chapter.pages);
+      const imagesJson = JSON.stringify(normalizedPages.map((p) => p.imageUrl));
 
       if (existChapterRows.length > 0) {
         chapterId = existChapterRows[0].id;
@@ -767,8 +800,8 @@ async function saveComicAndChapters({ comicUrl, comicData, chapters }) {
       }
 
       await conn.query('DELETE FROM chapter_pages WHERE chapter_id = ?', [chapterId]);
-      if (Array.isArray(chapter.pages) && chapter.pages.length > 0) {
-        for (const page of chapter.pages) {
+      if (normalizedPages.length > 0) {
+        for (const page of normalizedPages) {
           await conn.query(
             'INSERT INTO chapter_pages (chapter_id, page_number, image_url, source_url) VALUES (?, ?, ?, ?)',
             [chapterId, page.pageNumber, page.imageUrl, chapter.chapterUrl]
@@ -776,7 +809,7 @@ async function saveComicAndChapters({ comicUrl, comicData, chapters }) {
         }
       }
       upsertedChapterCount += 1;
-      upsertedPageCount += chapter.pages?.length || 0;
+      upsertedPageCount += normalizedPages.length;
     }
 
     await conn.query(

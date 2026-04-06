@@ -1,8 +1,26 @@
 const db = require('../config/database');
 
 class Chapter {
+  static normalizeImages(images = []) {
+    const output = [];
+    const seen = new Set();
+    const source = Array.isArray(images) ? images : [];
+
+    for (const rawImage of source) {
+      if (!rawImage || typeof rawImage !== 'string') continue;
+      const normalized = rawImage.trim();
+      if (!normalized) continue;
+      const dedupKey = normalized.split('?')[0];
+      if (!dedupKey || seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+      output.push(normalized);
+    }
+
+    return output;
+  }
+
   static async syncChapterPages(chapterId, images = []) {
-    const pages = Array.isArray(images) ? images.filter(Boolean) : [];
+    const pages = this.normalizeImages(images);
     await db.promise.query('DELETE FROM chapter_pages WHERE chapter_id = ?', [chapterId]);
     for (let i = 0; i < pages.length; i += 1) {
       await db.promise.query(
@@ -27,7 +45,7 @@ class Chapter {
         [chapter.id]
       );
       if (pageRows.length > 0) {
-        chapter.images = pageRows.map((row) => row.image_url);
+        chapter.images = this.normalizeImages(pageRows.map((row) => row.image_url));
       } else if (chapter.images) {
         try {
           // MySQL JSON type có thể trả về object/array trực tiếp hoặc string
@@ -38,6 +56,8 @@ class Chapter {
           if (!Array.isArray(chapter.images)) {
             console.warn(`Chapter ${chapter.id} images is not an array:`, typeof chapter.images, chapter.images);
             chapter.images = [];
+          } else {
+            chapter.images = this.normalizeImages(chapter.images);
           }
         } catch (e) {
           console.error('Error parsing images:', e, 'Raw:', chapter.images);
@@ -130,7 +150,7 @@ class Chapter {
     // images có thể đã là string (JSON) hoặc array
     let imagesValue = images;
     if (Array.isArray(images)) {
-      imagesValue = JSON.stringify(images);
+      imagesValue = JSON.stringify(this.normalizeImages(images));
     } else if (typeof images === 'string') {
       // Đã là JSON string, giữ nguyên
       imagesValue = images;
@@ -142,7 +162,7 @@ class Chapter {
       'INSERT INTO chapters (comic_id, chapter_number, title, content, images, status) VALUES (?, ?, ?, ?, ?, ?)',
       [comic_id, chapter_number, title, content, imagesValue, status]
     );
-    await this.syncChapterPages(result.insertId, Array.isArray(images) ? images : []);
+    await this.syncChapterPages(result.insertId, Array.isArray(images) ? this.normalizeImages(images) : []);
     return result.insertId;
   }
 
@@ -156,9 +176,14 @@ class Chapter {
           fields.push(`${key} = ?`);
           // images có thể đã là string (JSON) hoặc array
           if (Array.isArray(data[key])) {
-            values.push(JSON.stringify(data[key]));
+            values.push(JSON.stringify(this.normalizeImages(data[key])));
           } else if (typeof data[key] === 'string') {
-            values.push(data[key]);
+            try {
+              const parsed = JSON.parse(data[key] || '[]');
+              values.push(JSON.stringify(this.normalizeImages(Array.isArray(parsed) ? parsed : [])));
+            } catch (e) {
+              values.push(JSON.stringify([]));
+            }
           } else {
             values.push(JSON.stringify([]));
           }
@@ -179,11 +204,11 @@ class Chapter {
     if (data.images !== undefined) {
       let normalizedImages = [];
       if (Array.isArray(data.images)) {
-        normalizedImages = data.images;
+        normalizedImages = this.normalizeImages(data.images);
       } else if (typeof data.images === 'string') {
         try {
           const parsed = JSON.parse(data.images || '[]');
-          normalizedImages = Array.isArray(parsed) ? parsed : [];
+          normalizedImages = this.normalizeImages(Array.isArray(parsed) ? parsed : []);
         } catch (e) {
           normalizedImages = [];
         }
