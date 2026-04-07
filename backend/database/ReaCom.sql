@@ -24,6 +24,25 @@ SET time_zone = "+00:00";
 -- --------------------------------------------------------
 
 --
+-- Cấu trúc bảng cho bảng `ai_usage_stats_daily`
+--
+
+CREATE TABLE `ai_usage_stats_daily` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `date` date NOT NULL,
+  `chat_count` int(11) NOT NULL DEFAULT 0,
+  `summary_count` int(11) NOT NULL DEFAULT 0,
+  `estimated_input_tokens` int(11) NOT NULL DEFAULT 0,
+  `estimated_output_tokens` int(11) NOT NULL DEFAULT 0,
+  `estimated_cost` decimal(12,6) NOT NULL DEFAULT 0.000000,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `updated_at` timestamp NOT NULL DEFAULT current_timestamp() ON UPDATE current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Cấu trúc bảng cho bảng `categories`
 --
 
@@ -646,6 +665,41 @@ INSERT INTO `payments` (`id`, `user_id`, `order_id`, `amount`, `status`, `paymen
 -- --------------------------------------------------------
 
 --
+-- Cấu trúc bảng cho bảng `user_sessions`
+--
+
+CREATE TABLE `user_sessions` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `refresh_token_hash` varchar(255) NOT NULL,
+  `device_info` varchar(255) DEFAULT NULL,
+  `ip_address` varchar(45) DEFAULT NULL,
+  `user_agent` text DEFAULT NULL,
+  `is_revoked` tinyint(1) NOT NULL DEFAULT 0,
+  `last_seen_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `expires_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Cấu trúc bảng cho bảng `used_ai`
+--
+
+CREATE TABLE `used_ai` (
+  `id` int(11) NOT NULL,
+  `user_id` int(11) NOT NULL,
+  `comic_id` int(11) DEFAULT NULL,
+  `chapter_id` int(11) DEFAULT NULL,
+  `role` enum('user','assistant') NOT NULL,
+  `content` longtext NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- --------------------------------------------------------
+
+--
 -- Cấu trúc bảng cho bảng `reading_history`
 --
 
@@ -708,6 +762,14 @@ ALTER TABLE `categories`
   ADD PRIMARY KEY (`id`),
   ADD UNIQUE KEY `name` (`name`),
   ADD UNIQUE KEY `slug` (`slug`);
+
+--
+-- Chỉ mục cho bảng `ai_usage_stats_daily`
+--
+ALTER TABLE `ai_usage_stats_daily`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_user_date` (`user_id`,`date`),
+  ADD KEY `idx_ai_usage_date` (`date`);
 
 --
 -- Chỉ mục cho bảng `chapters`
@@ -828,8 +890,34 @@ ALTER TABLE `users`
   ADD KEY `idx_password_reset_token` (`password_reset_token`);
 
 --
+--
+-- Chỉ mục cho bảng `user_sessions`
+--
+ALTER TABLE `user_sessions`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `unique_refresh_token_hash` (`refresh_token_hash`),
+  ADD KEY `idx_user_revoked` (`user_id`,`is_revoked`),
+  ADD KEY `idx_session_expires_at` (`expires_at`);
+
+--
+-- Chỉ mục cho bảng `used_ai`
+--
+ALTER TABLE `used_ai`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `idx_used_ai_user_context_created` (`user_id`,`comic_id`,`chapter_id`,`created_at`),
+  ADD KEY `idx_used_ai_comic` (`comic_id`),
+  ADD KEY `idx_used_ai_chapter` (`chapter_id`);
+
+--
 -- AUTO_INCREMENT cho các bảng đã đổ
 --
+
+--
+--
+-- AUTO_INCREMENT cho bảng `ai_usage_stats_daily`
+--
+ALTER TABLE `ai_usage_stats_daily`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- AUTO_INCREMENT cho bảng `categories`
@@ -902,6 +990,18 @@ ALTER TABLE `reading_history`
 --
 ALTER TABLE `users`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
+
+--
+-- AUTO_INCREMENT cho bảng `user_sessions`
+--
+ALTER TABLE `user_sessions`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
+-- AUTO_INCREMENT cho bảng `used_ai`
+--
+ALTER TABLE `used_ai`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
 -- Các ràng buộc cho các bảng đã đổ
@@ -977,6 +1077,27 @@ ALTER TABLE `reading_history`
   ADD CONSTRAINT `reading_history_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `reading_history_ibfk_2` FOREIGN KEY (`comic_id`) REFERENCES `comics` (`id`) ON DELETE CASCADE,
   ADD CONSTRAINT `reading_history_ibfk_3` FOREIGN KEY (`chapter_id`) REFERENCES `chapters` (`id`) ON DELETE CASCADE;
+
+--
+--
+-- Các ràng buộc cho bảng `ai_usage_stats_daily`
+--
+ALTER TABLE `ai_usage_stats_daily`
+  ADD CONSTRAINT `ai_usage_stats_daily_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Các ràng buộc cho bảng `user_sessions`
+--
+ALTER TABLE `user_sessions`
+  ADD CONSTRAINT `user_sessions_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE;
+
+--
+-- Các ràng buộc cho bảng `used_ai`
+--
+ALTER TABLE `used_ai`
+  ADD CONSTRAINT `used_ai_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `used_ai_ibfk_2` FOREIGN KEY (`comic_id`) REFERENCES `comics` (`id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `used_ai_ibfk_3` FOREIGN KEY (`chapter_id`) REFERENCES `chapters` (`id`) ON DELETE SET NULL;
 COMMIT;
 
 /*!40101 SET CHARACTER_SET_CLIENT=@OLD_CHARACTER_SET_CLIENT */;

@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
 import { getNotificationCount, getNotifications, markNotificationAsRead, markAllNotificationsAsRead } from '../../services/api';
+import { getSocket } from '../../services/socket';
 import { API_BASE_URL } from '../../constants';
 import './Header.css';
 
@@ -16,21 +17,55 @@ const Header = () => {
   const notificationRef = useRef(null);
   const userMenuRef = useRef(null);
   const navigate = useNavigate();
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, logout, token } = useAuth();
   const { isDarkMode, toggleTheme } = useTheme();
 
   useEffect(() => {
     if (isAuthenticated) {
       fetchNotificationCount();
       fetchNotifications();
-      // Refresh count every 30 seconds
-      const interval = setInterval(() => {
-        fetchNotificationCount();
-        fetchNotifications();
-      }, 30000);
-      return () => clearInterval(interval);
     }
   }, [isAuthenticated]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+
+    const socket = getSocket(token || localStorage.getItem('token'));
+
+    const handleNotificationNew = ({ notification }) => {
+      if (!notification) return;
+      setNotifications((prev) => [notification, ...prev].slice(0, 20));
+    };
+
+    const handleNotificationCount = ({ count }) => {
+      setNotificationCount(typeof count === 'number' ? Math.min(count, 99) : 0);
+    };
+
+    const handleNotificationRead = ({ id }) => {
+      if (!id) return;
+      setNotifications((prev) =>
+        prev.map((notification) =>
+          notification.id === id ? { ...notification, is_read: true } : notification
+        )
+      );
+    };
+
+    const handleNotificationReadAll = () => {
+      setNotifications((prev) => prev.map((notification) => ({ ...notification, is_read: true })));
+    };
+
+    socket.on('notification:new', handleNotificationNew);
+    socket.on('notification:count', handleNotificationCount);
+    socket.on('notification:read', handleNotificationRead);
+    socket.on('notification:read_all', handleNotificationReadAll);
+
+    return () => {
+      socket.off('notification:new', handleNotificationNew);
+      socket.off('notification:count', handleNotificationCount);
+      socket.off('notification:read', handleNotificationRead);
+      socket.off('notification:read_all', handleNotificationReadAll);
+    };
+  }, [isAuthenticated, token]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {

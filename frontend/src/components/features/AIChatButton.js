@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { aiChat } from '../../services/api';
+import { aiChat, getAIChatHistory, clearAIChatHistory } from '../../services/api';
 import './AIChatButton.css';
 
 const AIChatButton = ({ comicId, chapterId }) => {
@@ -7,6 +7,7 @@ const AIChatButton = ({ comicId, chapterId }) => {
   const [messages, setMessages] = useState([]);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
   const messagesEndRef = useRef(null);
   const chatContainerRef = useRef(null);
 
@@ -17,6 +18,34 @@ const AIChatButton = ({ comicId, chapterId }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const loadChatHistory = async () => {
+      try {
+        setLoadingHistory(true);
+        const response = await getAIChatHistory({
+          comicId: comicId || null,
+          chapterId: chapterId || null,
+          limit: 100
+        });
+        if (response.data?.success && Array.isArray(response.data?.data)) {
+          const historyMessages = response.data.data.map((item) => ({
+            role: item.role,
+            content: item.content
+          }));
+          setMessages(historyMessages);
+        }
+      } catch (error) {
+        console.error('Error loading AI chat history:', error);
+      } finally {
+        setLoadingHistory(false);
+      }
+    };
+
+    loadChatHistory();
+  }, [isOpen, comicId, chapterId]);
 
   // Đóng chat khi click ra ngoài
   useEffect(() => {
@@ -87,8 +116,17 @@ const AIChatButton = ({ comicId, chapterId }) => {
     }
   };
 
-  const handleClearChat = () => {
-    setMessages([]);
+  const handleClearChat = async () => {
+    try {
+      await clearAIChatHistory({
+        comicId: comicId || null,
+        chapterId: chapterId || null
+      });
+      setMessages([]);
+    } catch (error) {
+      console.error('Error clearing AI chat history:', error);
+      alert('Không thể xóa lịch sử chat. Vui lòng thử lại.');
+    }
   };
 
   return (
@@ -120,7 +158,9 @@ const AIChatButton = ({ comicId, chapterId }) => {
           </div>
           
           <div className="ai-chat-messages">
-            {messages.length === 0 ? (
+            {loadingHistory ? (
+              <div className="notification-loading">Đang tải lịch sử chat...</div>
+            ) : messages.length === 0 ? (
               <div className="ai-chat-welcome">
                 <div className="welcome-icon">👋</div>
                 <h3>Xin chào! Tôi là trợ lý AI về truyện tranh</h3>

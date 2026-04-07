@@ -1,16 +1,16 @@
-const ReadingHistory = require('../models/ReadingHistory');
 const { successResponse, errorResponse } = require('../utils/response');
+const historyService = require('../services/historyService');
 
 class HistoryController {
   async getByUser(req, res) {
     try {
       const userId = req.user.id;
       const { limit = 50 } = req.query;
-      const history = await ReadingHistory.findByUserId(userId, parseInt(limit));
+      const history = await historyService.getByUser(userId, limit);
       return successResponse(res, history);
     } catch (error) {
       console.error('Error fetching reading history:', error);
-      return errorResponse(res, 'Lỗi server', 500);
+      return errorResponse(res, error.message || 'Lỗi server', error.statusCode || 500);
     }
   }
 
@@ -19,15 +19,11 @@ class HistoryController {
       const userId = req.user.id;
       const { comicId, chapterId } = req.body;
 
-      if (!comicId || !chapterId) {
-        return errorResponse(res, 'Thiếu comicId hoặc chapterId', 400);
-      }
-
-      await ReadingHistory.addOrUpdate(userId, comicId, chapterId);
+      await historyService.add(userId, comicId, chapterId);
       return successResponse(res, null, 'Đã cập nhật lịch sử đọc');
     } catch (error) {
       console.error('Error adding reading history:', error);
-      return errorResponse(res, 'Lỗi server', 500);
+      return errorResponse(res, error.message || 'Lỗi server', error.statusCode || 500);
     }
   }
 
@@ -35,11 +31,11 @@ class HistoryController {
     try {
       const userId = req.user.id;
       const { comicId } = req.params;
-      const history = await ReadingHistory.findByUserAndComic(userId, comicId);
+      const history = await historyService.getByComic(userId, comicId);
       return successResponse(res, history);
     } catch (error) {
       console.error('Error fetching reading history by comic:', error);
-      return errorResponse(res, 'Lỗi server', 500);
+      return errorResponse(res, error.message || 'Lỗi server', error.statusCode || 500);
     }
   }
 
@@ -48,26 +44,22 @@ class HistoryController {
       const userId = req.user.id;
       const { comicId } = req.params;
       
-      if (!comicId) {
-        return errorResponse(res, 'Thiếu comicId', 400);
-      }
-
-      await ReadingHistory.deleteByUserAndComic(userId, comicId);
+      await historyService.delete(userId, comicId);
       return successResponse(res, null, 'Đã xóa lịch sử đọc');
     } catch (error) {
       console.error('Error deleting reading history:', error);
-      return errorResponse(res, 'Lỗi server', 500);
+      return errorResponse(res, error.message || 'Lỗi server', error.statusCode || 500);
     }
   }
 
   async deleteAll(req, res) {
     try {
       const userId = req.user.id;
-      await ReadingHistory.deleteAllByUser(userId);
+      await historyService.deleteAll(userId);
       return successResponse(res, null, 'Đã xóa toàn bộ lịch sử đọc');
     } catch (error) {
       console.error('Error deleting all reading history:', error);
-      return errorResponse(res, 'Lỗi server', 500);
+      return errorResponse(res, error.message || 'Lỗi server', error.statusCode || 500);
     }
   }
 }

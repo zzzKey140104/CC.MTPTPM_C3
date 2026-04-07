@@ -7,11 +7,12 @@ import {
   toggleCommentLike,
   checkCommentLike 
 } from '../../services/api';
+import { getSocket } from '../../services/socket';
 import { getImageUrl } from '../../utils/helpers';
 import './CommentsSection.css';
 
 const CommentsSection = ({ comicId, chapterId, type = 'comic' }) => {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, token } = useAuth();
   const [comments, setComments] = useState([]);
   const [totalComments, setTotalComments] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -130,6 +131,68 @@ const CommentsSection = ({ comicId, chapterId, type = 'comic' }) => {
       loadComments();
     }
   }, [comicId, chapterId, page, sort, type, loadComments]);
+
+  useEffect(() => {
+    const socket = getSocket(token || localStorage.getItem('token'));
+    const targetId = type === 'comic' ? comicId : chapterId;
+    if (!targetId) return undefined;
+
+    const joinEvent = type === 'comic' ? 'join_comic' : 'join_chapter';
+    const leaveEvent = type === 'comic' ? 'leave_comic' : 'leave_chapter';
+    socket.emit(joinEvent, targetId);
+
+    const handleCommentCreated = (payload) => {
+      const createdComment = payload?.comment;
+      if (!createdComment) return;
+
+      if (type === 'comic' && createdComment.comic_id !== Number(comicId)) return;
+      if (type === 'chapter' && createdComment.chapter_id !== Number(chapterId)) return;
+
+      loadComments();
+    };
+
+    const handleCommentDeleted = (payload) => {
+      if (!payload?.id) return;
+      if (type === 'comic' && payload.comic_id !== Number(comicId)) return;
+      if (type === 'chapter' && payload.chapter_id !== Number(chapterId)) return;
+      loadComments();
+    };
+
+    const handleCommentLike = (payload) => {
+      if (!payload?.commentId) return;
+      if (type === 'comic' && payload.comic_id !== Number(comicId)) return;
+      if (type === 'chapter' && payload.chapter_id !== Number(chapterId)) return;
+      setComments((prev) =>
+        prev.map((comment) => {
+          if (comment.id === payload.commentId) {
+            return { ...comment, likes_count: payload.likes_count };
+          }
+          if (Array.isArray(comment.replies)) {
+            return {
+              ...comment,
+              replies: comment.replies.map((reply) =>
+                reply.id === payload.commentId
+                  ? { ...reply, likes_count: payload.likes_count }
+                  : reply
+              )
+            };
+          }
+          return comment;
+        })
+      );
+    };
+
+    socket.on('comment:created', handleCommentCreated);
+    socket.on('comment:deleted', handleCommentDeleted);
+    socket.on('comment:like_toggled', handleCommentLike);
+
+    return () => {
+      socket.emit(leaveEvent, targetId);
+      socket.off('comment:created', handleCommentCreated);
+      socket.off('comment:deleted', handleCommentDeleted);
+      socket.off('comment:like_toggled', handleCommentLike);
+    };
+  }, [comicId, chapterId, type, loadComments, token]);
 
 
   const handleSubmit = async (e) => {

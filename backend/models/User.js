@@ -1,6 +1,10 @@
 const db = require('../config/database');
 
 class User {
+  static getExecutor(options = {}) {
+    return options.connection || db.promise;
+  }
+
   static async findByEmail(email) {
     const [users] = await db.promise.query(
       'SELECT * FROM users WHERE email = ?',
@@ -17,8 +21,9 @@ class User {
     return users[0] || null;
   }
 
-  static async findById(id) {
-    const [users] = await db.promise.query(
+  static async findById(id, options = {}) {
+    const executor = this.getExecutor(options);
+    const [users] = await executor.query(
       'SELECT id, username, email, avatar, role, account_status, created_at FROM users WHERE id = ?',
       [id]
     );
@@ -71,7 +76,8 @@ class User {
     return result.insertId;
   }
 
-  static async update(id, data) {
+  static async update(id, data, options = {}) {
+    const executor = this.getExecutor(options);
     const fields = [];
     const values = [];
 
@@ -85,7 +91,7 @@ class User {
     if (fields.length === 0) return null;
 
     values.push(id);
-    const [result] = await db.promise.query(
+    const [result] = await executor.query(
       `UPDATE users SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       values
     );

@@ -32,6 +32,18 @@ class Notification {
     return notifications;
   }
 
+  static async findByIdForUser(notificationId, userId) {
+    const [notifications] = await db.promise.query(
+      `SELECT n.*, c.title as comic_title, c.slug as comic_slug, c.cover_image
+       FROM notifications n
+       LEFT JOIN comics c ON n.comic_id = c.id
+       WHERE n.id = ? AND n.user_id = ?
+       LIMIT 1`,
+      [notificationId, userId]
+    );
+    return notifications[0] || null;
+  }
+
   static async getUnreadCount(userId) {
     const [result] = await db.promise.query(
       'SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = FALSE',
@@ -75,7 +87,10 @@ class Notification {
         chapter_id: chapterId,
         chapter_number: chapterNumber
       });
-      notifications.push(notificationId);
+      notifications.push({
+        id: notificationId,
+        user_id: follower.user_id
+      });
     }
 
     return notifications;

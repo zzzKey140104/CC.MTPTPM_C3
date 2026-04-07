@@ -1,12 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { getProfile, updateProfile } from '../services/api';
+import {
+  getProfile,
+  updateProfile,
+  getSessions,
+  revokeSession,
+  revokeAllSessions,
+  getAIUsageDaily,
+  getAIUsageSummary
+} from '../services/api';
 import Loading from '../components/common/Loading';
 import './Profile.css';
 
 const Profile = () => {
-  const { user: authUser, login, isAuthenticated } = useAuth();
+  const { user: authUser, token, login, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -22,6 +30,11 @@ const Profile = () => {
   });
   const [avatar, setAvatar] = useState(null);
   const [avatarPreview, setAvatarPreview] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [sessionLoading, setSessionLoading] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageDaily, setUsageDaily] = useState([]);
+  const [usageSummary, setUsageSummary] = useState(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -29,7 +42,34 @@ const Profile = () => {
       return;
     }
     fetchProfile();
+    loadSessionAndUsageData();
   }, [isAuthenticated, navigate]);
+
+  const loadSessionAndUsageData = async () => {
+    try {
+      setSessionLoading(true);
+      setUsageLoading(true);
+      const [sessionsResponse, usageDailyResponse, usageSummaryResponse] = await Promise.all([
+        getSessions(),
+        getAIUsageDaily(),
+        getAIUsageSummary()
+      ]);
+      if (sessionsResponse.data?.success) {
+        setSessions(sessionsResponse.data.data || []);
+      }
+      if (usageDailyResponse.data?.success) {
+        setUsageDaily(usageDailyResponse.data.data || []);
+      }
+      if (usageSummaryResponse.data?.success) {
+        setUsageSummary(usageSummaryResponse.data.data || null);
+      }
+    } catch (err) {
+      console.error('Error loading session/usage data:', err);
+    } finally {
+      setSessionLoading(false);
+      setUsageLoading(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -132,7 +172,7 @@ const Profile = () => {
       }
       
       // Cập nhật AuthContext
-      login(authUser.token, {
+      login(token, {
         ...authUser,
         username: updatedUser.username,
         avatar: updatedUser.avatar
@@ -155,6 +195,26 @@ const Profile = () => {
       setError(err.response?.data?.message || 'Cập nhật thất bại. Vui lòng thử lại.');
     } finally {
       setUpdating(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId) => {
+    try {
+      await revokeSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể thu hồi phiên');
+    }
+  };
+
+  const handleRevokeAllSessions = async () => {
+    try {
+      await revokeAllSessions();
+      setSessions((prev) => prev.map((session) => ({ ...session, is_revoked: 1 })));
+      setSuccess('Đã thu hồi tất cả phiên đăng nhập');
+      setTimeout(() => setSuccess(''), 3000);
+    } catch (err) {
+      setError(err.response?.data?.message || 'Không thể thu hồi tất cả phiên');
     }
   };
 
@@ -263,6 +323,74 @@ const Profile = () => {
               {updating ? 'Đang cập nhật...' : 'Cập nhật'}
             </button>
           </form>
+        </div>
+
+        <div className="profile-container sessions-container">
+          <div className="sessions-header">
+            <h2>Thiết bị đăng nhập</h2>
+            <button className="btn btn-danger" onClick={handleRevokeAllSessions} type="button">
+              Thu hồi tất cả phiên
+            </button>
+          </div>
+          {sessionLoading ? (
+            <p>Đang tải danh sách phiên...</p>
+          ) : sessions.length === 0 ? (
+            <p>Không có phiên đăng nhập nào.</p>
+          ) : (
+            <div className="sessions-list">
+              {sessions.map((session) => (
+                <div key={session.id} className="session-item">
+                  <div>
+                    <p><strong>Thiết bị:</strong> {session.device_info || 'Unknown device'}</p>
+                    <p><strong>IP:</strong> {session.ip_address || 'Unknown IP'}</p>
+                    <p><strong>Đăng nhập lúc:</strong> {new Date(session.created_at).toLocaleString('vi-VN')}</p>
+                    <p><strong>Hết hạn:</strong> {new Date(session.expires_at).toLocaleString('vi-VN')}</p>
+                    <p><strong>Trạng thái:</strong> {session.is_revoked ? 'Đã thu hồi' : 'Đang hoạt động'}</p>
+                  </div>
+                  {!session.is_revoked && (
+                    <button
+                      type="button"
+                      className="btn btn-secondary"
+                      onClick={() => handleRevokeSession(session.id)}
+                    >
+                      Thu hồi
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="profile-container usage-container">
+          <h2>Sử dụng AI</h2>
+          {usageLoading ? (
+            <p>Đang tải thống kê AI...</p>
+          ) : (
+            <>
+              <div className="usage-summary">
+                <p><strong>Tổng chat:</strong> {usageSummary?.total_chat_count || 0}</p>
+                <p><strong>Tổng tóm tắt:</strong> {usageSummary?.total_summary_count || 0}</p>
+                <p><strong>Tổng input tokens:</strong> {usageSummary?.total_input_tokens || 0}</p>
+                <p><strong>Tổng output tokens:</strong> {usageSummary?.total_output_tokens || 0}</p>
+                <p><strong>Chi phí ước lượng:</strong> {Number(usageSummary?.total_estimated_cost || 0).toFixed(6)} USD</p>
+              </div>
+              <div className="usage-list">
+                {usageDaily.length === 0 ? (
+                  <p>Chưa có dữ liệu sử dụng AI.</p>
+                ) : (
+                  usageDaily.map((row) => (
+                    <div key={row.date} className="usage-item">
+                      <p><strong>Ngày:</strong> {row.date}</p>
+                      <p><strong>Chat:</strong> {row.chat_count} | <strong>Tóm tắt:</strong> {row.summary_count}</p>
+                      <p><strong>Tokens:</strong> in {row.estimated_input_tokens} / out {row.estimated_output_tokens}</p>
+                      <p><strong>Cost:</strong> {Number(row.estimated_cost || 0).toFixed(6)} USD</p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>

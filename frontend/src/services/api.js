@@ -115,6 +115,22 @@ export const googleLogin = () => {
   window.location.href = `${API_BASE_URL}/auth/google`;
 };
 
+export const logoutApi = () => {
+  return api.post('/auth/logout');
+};
+
+export const getSessions = () => {
+  return api.get('/auth/sessions');
+};
+
+export const revokeSession = (sessionId) => {
+  return api.delete(`/auth/sessions/${sessionId}`);
+};
+
+export const revokeAllSessions = () => {
+  return api.delete('/auth/sessions');
+};
+
 // Categories API
 export const getCategories = () => {
   return api.get('/categories');
@@ -255,6 +271,22 @@ export const summarizeChapter = (chapterId) => {
 
 export const aiChat = (data) => {
   return api.post('/ai/chat', data);
+};
+
+export const getAIChatHistory = (params = {}) => {
+  return api.get('/ai/chat/history', { params });
+};
+
+export const clearAIChatHistory = (data = {}) => {
+  return api.delete('/ai/chat/history', { data });
+};
+
+export const getAIUsageDaily = (params = {}) => {
+  return api.get('/ai/usage/daily', { params });
+};
+
+export const getAIUsageSummary = () => {
+  return api.get('/ai/usage/summary');
 };
 
 // Payment API

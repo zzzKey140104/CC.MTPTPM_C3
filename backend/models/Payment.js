@@ -1,6 +1,10 @@
 const db = require('../config/database');
 
 class Payment {
+  static getExecutor(options = {}) {
+    return options.connection || db.promise;
+  }
+
   static async create(data) {
     const { user_id, order_id, amount, payment_type, qr_code_url, qr_code_data, expires_at } = data;
     
@@ -24,17 +28,21 @@ class Payment {
     }
   }
 
-  static async findByOrderId(order_id) {
-    const [payments] = await db.promise.query(
-      'SELECT * FROM payments WHERE order_id = ?',
+  static async findByOrderId(order_id, options = {}) {
+    const executor = this.getExecutor(options);
+    const lockClause = options.forUpdate ? ' FOR UPDATE' : '';
+    const [payments] = await executor.query(
+      `SELECT * FROM payments WHERE order_id = ?${lockClause}`,
       [order_id]
     );
     return payments[0] || null;
   }
 
-  static async findById(id) {
-    const [payments] = await db.promise.query(
-      'SELECT * FROM payments WHERE id = ?',
+  static async findById(id, options = {}) {
+    const executor = this.getExecutor(options);
+    const lockClause = options.forUpdate ? ' FOR UPDATE' : '';
+    const [payments] = await executor.query(
+      `SELECT * FROM payments WHERE id = ?${lockClause}`,
       [id]
     );
     return payments[0] || null;
@@ -58,7 +66,8 @@ class Payment {
     return payments;
   }
 
-  static async update(id, data) {
+  static async update(id, data, options = {}) {
+    const executor = this.getExecutor(options);
     const fields = [];
     const values = [];
 
@@ -72,14 +81,15 @@ class Payment {
     if (fields.length === 0) return null;
 
     values.push(id);
-    const [result] = await db.promise.query(
+    const [result] = await executor.query(
       `UPDATE payments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
       values
     );
     return result.affectedRows > 0;
   }
 
-  static async updateByOrderId(order_id, data) {
+  static async updateByOrderId(order_id, data, options = {}) {
+    const executor = this.getExecutor(options);
     const fields = [];
     const values = [];
 
@@ -97,7 +107,7 @@ class Payment {
 
     values.push(order_id);
     try {
-      const [result] = await db.promise.query(
+      const [result] = await executor.query(
         `UPDATE payments SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE order_id = ?`,
         values
       );

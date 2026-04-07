@@ -29,25 +29,14 @@ class ReadingHistory {
   }
 
   static async addOrUpdate(userId, comicId, chapterId) {
-    // Kiểm tra xem đã có lịch sử chưa
-    const [existing] = await db.promise.query(
-      'SELECT id FROM reading_history WHERE user_id = ? AND comic_id = ?',
-      [userId, comicId]
+    await db.promise.query(
+      `INSERT INTO reading_history (user_id, comic_id, chapter_id)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         chapter_id = VALUES(chapter_id),
+         last_read_at = CURRENT_TIMESTAMP`,
+      [userId, comicId, chapterId]
     );
-
-    if (existing.length > 0) {
-      // Cập nhật
-      await db.promise.query(
-        'UPDATE reading_history SET chapter_id = ?, last_read_at = CURRENT_TIMESTAMP WHERE user_id = ? AND comic_id = ?',
-        [chapterId, userId, comicId]
-      );
-    } else {
-      // Thêm mới
-      await db.promise.query(
-        'INSERT INTO reading_history (user_id, comic_id, chapter_id) VALUES (?, ?, ?)',
-        [userId, comicId, chapterId]
-      );
-    }
   }
 
   static async deleteByUserAndComic(userId, comicId) {

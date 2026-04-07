@@ -1,6 +1,8 @@
 const jwt = require('jsonwebtoken');
 const { promisify } = require('util');
+const crypto = require('crypto');
 const User = require('../models/User');
+const UserSession = require('../models/UserSession');
 const { errorResponse } = require('../utils/response');
 
 const verifyToken = promisify(jwt.verify);
@@ -21,6 +23,13 @@ const authenticateToken = async (req, res, next) => {
     }
 
     const decoded = await verifyToken(token, process.env.JWT_SECRET);
+    if (decoded.session_id) {
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const validSession = await UserSession.isSessionValid(decoded.id, decoded.session_id, tokenHash);
+      if (!validSession) {
+        return errorResponse(res, 'Phiên đăng nhập không hợp lệ hoặc đã hết hạn', 401);
+      }
+    }
 
     // Lấy thông tin user từ database để có role và account_status
     const user = await User.findById(decoded.id);
@@ -36,6 +45,7 @@ const authenticateToken = async (req, res, next) => {
     req.user = {
       id: user.id,
       email: decoded.email,
+      session_id: decoded.session_id || null,
       role: user.role || 'reader',
       account_status: user.account_status || 'active'
     };
@@ -68,6 +78,13 @@ const optionalAuth = async (req, res, next) => {
 
     try {
       const decoded = await verifyToken(token, process.env.JWT_SECRET);
+      if (decoded.session_id) {
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const validSession = await UserSession.isSessionValid(decoded.id, decoded.session_id, tokenHash);
+        if (!validSession) {
+          return next();
+        }
+      }
       
       // Lấy thông tin user từ database để có role và account_status
       const user = await User.findById(decoded.id);
@@ -79,6 +96,7 @@ const optionalAuth = async (req, res, next) => {
           req.user = {
             id: user.id,
             email: decoded.email,
+            session_id: decoded.session_id || null,
             role: user.role || 'reader',
             account_status: user.account_status || 'active'
           };
