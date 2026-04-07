@@ -1,6 +1,15 @@
 const db = require('../config/database');
 
 class Comic {
+  /**
+   * Helper: Xây dựng WHERE clause chung cho access_status filtering
+   */
+  static _buildAccessFilter(isAdmin, isVip) {
+    if (isAdmin) return '';
+    if (isVip) return ' AND (c.access_status = "open" OR c.access_status = "vip")';
+    return ' AND c.access_status = "open"';
+  }
+
   static async findAll(params = {}) {
     const { 
       page = 1, 
@@ -16,23 +25,32 @@ class Comic {
     } = params;
     const offset = (page - 1) * limit;
 
+    // Dùng LEFT JOIN aggregates thay vì correlated subqueries
+    // Trước: 3 subqueries chạy cho MỖI row → O(N * 3)
+    // Sau: 1 JOIN pre-aggregated → O(1)
     let query = `SELECT c.*, co.name as country_name,
-                        (SELECT COALESCE(SUM(ch.views), 0) FROM chapters ch WHERE ch.comic_id = c.id) as calculated_views,
-                        (SELECT COUNT(*) FROM favorites f WHERE f.comic_id = c.id) as favorite_count,
-                        (SELECT MAX(ch.updated_at) FROM chapters ch WHERE ch.comic_id = c.id) as latest_chapter_update
+                        COALESCE(cv.total_views, 0) as calculated_views,
+                        COALESCE(fc.fav_count, 0) as favorite_count,
+                        cv.latest_update as latest_chapter_update
                  FROM comics c 
-                 LEFT JOIN countries co ON c.country_id = co.id 
+                 LEFT JOIN countries co ON c.country_id = co.id
+                 LEFT JOIN (
+                   SELECT comic_id, 
+                          SUM(views) as total_views, 
+                          MAX(updated_at) as latest_update 
+                   FROM chapters 
+                   GROUP BY comic_id
+                 ) cv ON cv.comic_id = c.id
+                 LEFT JOIN (
+                   SELECT comic_id, COUNT(*) as fav_count 
+                   FROM favorites 
+                   GROUP BY comic_id
+                 ) fc ON fc.comic_id = c.id
                  WHERE 1=1 AND c.source_site = 'pops'`;
     let queryParams = [];
 
-    // Lọc theo access_status: chỉ hiển thị truyện mở hoặc vip (nếu user là vip), admin thấy tất cả
-    if (!isAdmin) {
-      if (isVip) {
-        query += ' AND (c.access_status = "open" OR c.access_status = "vip")';
-      } else {
-        query += ' AND c.access_status = "open"';
-      }
-    }
+    // Access status filter
+    query += this._buildAccessFilter(isAdmin, isVip);
 
     if (search) {
       query += ' AND (c.title LIKE ? OR c.author LIKE ?)';
@@ -40,12 +58,10 @@ class Comic {
     }
 
     // Xử lý sort parameter trước khi xử lý status filter
-    // Nếu sort = 'full', luôn filter completed và bỏ qua status filter từ user
     if (sort === 'full' || sort === 'completed') {
       query += ' AND c.status = ?';
       queryParams.push('completed');
     } else if (status) {
-      // Chỉ áp dụng status filter nếu không phải sort = 'full'
       query += ' AND c.status = ?';
       queryParams.push(status);
     }
@@ -59,7 +75,6 @@ class Comic {
     if (includeCategories) {
       const includeIds = includeCategories.split(',').filter(id => id);
       if (includeIds.length > 0) {
-        // Truyện phải có TẤT CẢ các thể loại được chọn (AND logic)
         query += ` AND c.id IN (
           SELECT comic_id 
           FROM comic_categories 
@@ -84,28 +99,24 @@ class Comic {
     }
 
     // Xử lý sort parameter cho ORDER BY
-    let orderBy = 'c.updated_at DESC'; // Default
+    let orderBy = 'c.updated_at DESC';
     switch (sort) {
       case 'views_day':
       case 'views_week':
       case 'views_month':
-        // Sử dụng tổng views từ chapters (vì không có tracking views theo thời gian)
         orderBy = 'calculated_views DESC';
         break;
       case 'favorites':
         orderBy = 'favorite_count DESC';
         break;
       case 'latest_update':
-        // Truyện mới cập nhật - sắp xếp theo thời gian cập nhật chương mới nhất
         orderBy = 'latest_chapter_update DESC, c.updated_at DESC';
         break;
       case 'new_comic':
-        // Truyện mới thêm vào hệ thống - sắp xếp theo thời gian tạo truyện
         orderBy = 'c.created_at DESC';
         break;
       case 'full':
       case 'completed':
-        // Truyện đã hoàn thành - sắp xếp theo views
         orderBy = 'calculated_views DESC';
         break;
       default:
@@ -116,109 +127,127 @@ class Comic {
     queryParams.push(limit, offset);
 
     const [comics] = await db.promise.query(query, queryParams);
-    // Thay thế views bằng calculated_views và thêm favorite_count
-    comics.forEach(comic => {
-      if (comic.calculated_views !== undefined) {
-        comic.views = comic.calculated_views;
-      }
-      if (comic.favorite_count !== undefined) {
-        comic.favorites = comic.favorite_count;
-      }
-    });
+    // Map calculated fields
+    for (const comic of comics) {
+      comic.views = comic.calculated_views || 0;
+      comic.favorites = comic.favorite_count || 0;
+    }
     return comics;
   }
 
   static async count(params = {}) {
-    const { search = '', status = '', country_id = '', isAdmin = false, isVip = false } = params;
-    let query = `SELECT COUNT(*) as total
-                 FROM comics c
-                 WHERE 1=1 AND c.source_site = 'pops'`;
-    let params_array = [];
+    const { search = '', status = '', country_id = '', sort = '', includeCategories = '', excludeCategories = '', isAdmin = false, isVip = false } = params;
+    let query = `SELECT COUNT(*) as total FROM comics c WHERE 1=1 AND c.source_site = 'pops'`;
+    let queryParams = [];
 
-    // Lọc theo access_status: chỉ hiển thị truyện mở hoặc vip (nếu user là vip), admin thấy tất cả
-    if (!isAdmin) {
-      if (isVip) {
-        query += ' AND (c.access_status = "open" OR c.access_status = "vip")';
-      } else {
-        query += ' AND c.access_status = "open"';
-      }
-    }
+    query += this._buildAccessFilter(isAdmin, isVip);
 
     if (search) {
       query += ' AND (c.title LIKE ? OR c.author LIKE ?)';
-      params_array.push(`%${search}%`, `%${search}%`);
+      queryParams.push(`%${search}%`, `%${search}%`);
     }
 
-    if (status) {
+    if (sort === 'full' || sort === 'completed') {
       query += ' AND c.status = ?';
-      params_array.push(status);
+      queryParams.push('completed');
+    } else if (status) {
+      query += ' AND c.status = ?';
+      queryParams.push(status);
     }
 
     if (country_id) {
       query += ' AND c.country_id = ?';
-      params_array.push(country_id);
+      queryParams.push(country_id);
     }
 
-    const [result] = await db.promise.query(query, params_array);
+    if (includeCategories) {
+      const includeIds = includeCategories.split(',').filter(id => id);
+      if (includeIds.length > 0) {
+        query += ` AND c.id IN (
+          SELECT comic_id FROM comic_categories 
+          WHERE category_id IN (${includeIds.map(() => '?').join(',')})
+          GROUP BY comic_id HAVING COUNT(DISTINCT category_id) = ?
+        )`;
+        queryParams.push(...includeIds, includeIds.length);
+      }
+    }
+
+    if (excludeCategories) {
+      const excludeIds = excludeCategories.split(',').filter(id => id);
+      if (excludeIds.length > 0) {
+        query += ` AND c.id NOT IN (
+          SELECT DISTINCT comic_id FROM comic_categories 
+          WHERE category_id IN (${excludeIds.map(() => '?').join(',')})
+        )`;
+        queryParams.push(...excludeIds);
+      }
+    }
+
+    const [result] = await db.promise.query(query, queryParams);
     return result[0].total;
   }
 
   static async findByCategory(categoryId, params = {}) {
-    const { page = 1, limit = 20 } = params;
+    const { page = 1, limit = 20, isVip = false, isAdmin = false } = params;
     const offset = (page - 1) * limit;
 
-    const [comics] = await db.promise.query(
-      `SELECT DISTINCT c.*, co.name as country_name,
-              (SELECT COALESCE(SUM(ch.views), 0) FROM chapters ch WHERE ch.comic_id = c.id) as calculated_views
-       FROM comics c
-       LEFT JOIN countries co ON c.country_id = co.id
-       JOIN comic_categories cc ON c.id = cc.comic_id
-       WHERE cc.category_id = ? AND c.source_site = 'pops'
-       ORDER BY c.updated_at DESC
-       LIMIT ? OFFSET ?`,
-      [categoryId, limit, offset]
-    );
-    // Thay thế views bằng calculated_views
-    comics.forEach(comic => {
-      if (comic.calculated_views !== undefined) {
-        comic.views = comic.calculated_views;
-      }
-    });
+    let query = `SELECT DISTINCT c.*, co.name as country_name,
+                        COALESCE(cv.total_views, 0) as calculated_views
+                 FROM comics c
+                 LEFT JOIN countries co ON c.country_id = co.id
+                 LEFT JOIN (
+                   SELECT comic_id, SUM(views) as total_views 
+                   FROM chapters GROUP BY comic_id
+                 ) cv ON cv.comic_id = c.id
+                 JOIN comic_categories cc ON c.id = cc.comic_id
+                 WHERE cc.category_id = ? AND c.source_site = 'pops'`;
+    const queryParams = [categoryId];
+
+    // Filter access_status ở SQL level thay vì JS level
+    query += this._buildAccessFilter(isAdmin, isVip);
+
+    query += ' ORDER BY c.updated_at DESC LIMIT ? OFFSET ?';
+    queryParams.push(limit, offset);
+
+    const [comics] = await db.promise.query(query, queryParams);
+    for (const comic of comics) {
+      comic.views = comic.calculated_views || 0;
+    }
     return comics;
   }
 
-  static async countByCategory(categoryId) {
-    const [result] = await db.promise.query(
-      `SELECT COUNT(DISTINCT c.id) as total
-       FROM comics c
-       JOIN comic_categories cc ON c.id = cc.comic_id
-       WHERE cc.category_id = ? AND c.source_site = 'pops'`,
-      [categoryId]
-    );
+  static async countByCategory(categoryId, isVip = false, isAdmin = false) {
+    let query = `SELECT COUNT(DISTINCT c.id) as total
+                 FROM comics c
+                 JOIN comic_categories cc ON c.id = cc.comic_id
+                 WHERE cc.category_id = ? AND c.source_site = 'pops'`;
+    const queryParams = [categoryId];
+
+    query += this._buildAccessFilter(isAdmin, isVip);
+
+    const [result] = await db.promise.query(query, queryParams);
     return result[0].total;
   }
 
   static async findById(id, isVip = false, isAdmin = false) {
     let query = `SELECT c.*, co.name as country_name,
-              (SELECT COALESCE(SUM(ch.views), 0) FROM chapters ch WHERE ch.comic_id = c.id) as calculated_views
-       FROM comics c 
-       LEFT JOIN countries co ON c.country_id = co.id
-       WHERE c.id = ? AND c.source_site = 'pops'`;
+                        COALESCE(cv.total_views, 0) as calculated_views
+                 FROM comics c 
+                 LEFT JOIN countries co ON c.country_id = co.id
+                 LEFT JOIN (
+                   SELECT comic_id, SUM(views) as total_views 
+                   FROM chapters WHERE comic_id = ?
+                   GROUP BY comic_id
+                 ) cv ON cv.comic_id = c.id
+                 WHERE c.id = ? AND c.source_site = 'pops'`;
+    const queryParams = [id, id];
+
+    query += this._buildAccessFilter(isAdmin, isVip);
     
-    // Kiểm tra quyền truy cập
-    if (!isAdmin) {
-      if (isVip) {
-        query += ' AND (c.access_status = "open" OR c.access_status = "vip")';
-      } else {
-        query += ' AND c.access_status = "open"';
-      }
-    }
-    
-    const [comics] = await db.promise.query(query, [id]);
+    const [comics] = await db.promise.query(query, queryParams);
     const comic = comics[0] || null;
-    if (comic && comic.calculated_views !== undefined) {
-      // Sử dụng tổng lượt xem từ các chương
-      comic.views = comic.calculated_views;
+    if (comic) {
+      comic.views = comic.calculated_views || 0;
     }
     return comic;
   }
@@ -237,7 +266,7 @@ class Comic {
     );
     comic.categories = categories;
 
-    // Chuẩn hoá metadata crawl để frontend hiển thị label rõ ràng.
+    // Chuẩn hoá metadata crawl
     if (comic.raw_meta) {
       try {
         const meta = typeof comic.raw_meta === 'string' ? JSON.parse(comic.raw_meta) : comic.raw_meta;
@@ -258,13 +287,8 @@ class Comic {
           }));
         }
       } catch (e) {
-        // Ignore malformed raw_meta and keep default fields.
+        // Ignore malformed raw_meta
       }
-    }
-
-    // Đảm bảo views là tổng từ các chương
-    if (comic.calculated_views !== undefined) {
-      comic.views = comic.calculated_views;
     }
 
     return comic;
@@ -273,40 +297,42 @@ class Comic {
   static async findPopular(limit = 6) {
     const [comics] = await db.promise.query(
       `SELECT c.*, co.name as country_name,
-              (SELECT COALESCE(SUM(ch.views), 0) FROM chapters ch WHERE ch.comic_id = c.id) as calculated_views
+              COALESCE(cv.total_views, 0) as calculated_views
        FROM comics c 
-       LEFT JOIN countries co ON c.country_id = co.id 
+       LEFT JOIN countries co ON c.country_id = co.id
+       LEFT JOIN (
+         SELECT comic_id, SUM(views) as total_views 
+         FROM chapters GROUP BY comic_id
+       ) cv ON cv.comic_id = c.id
        WHERE c.source_site = 'pops'
        ORDER BY calculated_views DESC 
        LIMIT ?`,
       [limit]
     );
-    // Thay thế views bằng calculated_views
-    comics.forEach(comic => {
-      if (comic.calculated_views !== undefined) {
-        comic.views = comic.calculated_views;
-      }
-    });
+    for (const comic of comics) {
+      comic.views = comic.calculated_views || 0;
+    }
     return comics;
   }
 
   static async findLatest(limit = 18) {
     const [comics] = await db.promise.query(
       `SELECT c.*, co.name as country_name,
-              (SELECT COALESCE(SUM(ch.views), 0) FROM chapters ch WHERE ch.comic_id = c.id) as calculated_views
+              COALESCE(cv.total_views, 0) as calculated_views
        FROM comics c 
-       LEFT JOIN countries co ON c.country_id = co.id 
+       LEFT JOIN countries co ON c.country_id = co.id
+       LEFT JOIN (
+         SELECT comic_id, SUM(views) as total_views 
+         FROM chapters GROUP BY comic_id
+       ) cv ON cv.comic_id = c.id
        WHERE c.source_site = 'pops'
        ORDER BY c.updated_at DESC 
        LIMIT ?`,
       [limit]
     );
-    // Thay thế views bằng calculated_views
-    comics.forEach(comic => {
-      if (comic.calculated_views !== undefined) {
-        comic.views = comic.calculated_views;
-      }
-    });
+    for (const comic of comics) {
+      comic.views = comic.calculated_views || 0;
+    }
     return comics;
   }
 
@@ -355,7 +381,6 @@ class Comic {
     );
   }
 
-  // Tính tổng lượt xem truyện từ tổng lượt xem các chương
   static async updateViewsFromChapters(comicId) {
     const [result] = await db.promise.query(
       `UPDATE comics c 
@@ -370,7 +395,6 @@ class Comic {
     return result.affectedRows > 0;
   }
 
-  // Lấy tổng lượt xem từ các chương (không cập nhật database)
   static async getTotalViewsFromChapters(comicId) {
     const [result] = await db.promise.query(
       'SELECT COALESCE(SUM(views), 0) as total_views FROM chapters WHERE comic_id = ?',
@@ -379,15 +403,22 @@ class Comic {
     return result[0]?.total_views || 0;
   }
 
-  // Lấy danh sách truyện đóng và VIP (cho admin)
   static async findClosedAndVipComics(params = {}) {
     const { search = '' } = params;
     
     let query = `SELECT c.*, co.name as country_name,
-                        (SELECT COALESCE(SUM(ch.views), 0) FROM chapters ch WHERE ch.comic_id = c.id) as calculated_views,
-                        (SELECT COUNT(*) FROM favorites f WHERE f.comic_id = c.id) as favorite_count
+                        COALESCE(cv.total_views, 0) as calculated_views,
+                        COALESCE(fc.fav_count, 0) as favorite_count
                  FROM comics c 
-                 LEFT JOIN countries co ON c.country_id = co.id 
+                 LEFT JOIN countries co ON c.country_id = co.id
+                 LEFT JOIN (
+                   SELECT comic_id, SUM(views) as total_views 
+                   FROM chapters GROUP BY comic_id
+                 ) cv ON cv.comic_id = c.id
+                 LEFT JOIN (
+                   SELECT comic_id, COUNT(*) as fav_count 
+                   FROM favorites GROUP BY comic_id
+                 ) fc ON fc.comic_id = c.id
                  WHERE c.source_site = 'pops' AND (c.access_status = 'closed' OR c.access_status = 'vip')`;
     let queryParams = [];
 
@@ -399,20 +430,12 @@ class Comic {
     query += ' ORDER BY c.updated_at DESC';
     
     const [comics] = await db.promise.query(query, queryParams);
-    
-    // Thay thế views bằng calculated_views
-    comics.forEach(comic => {
-      if (comic.calculated_views !== undefined) {
-        comic.views = comic.calculated_views;
-      }
-      if (comic.favorite_count !== undefined) {
-        comic.favorites = comic.favorite_count;
-      }
-    });
-    
+    for (const comic of comics) {
+      comic.views = comic.calculated_views || 0;
+      comic.favorites = comic.favorite_count || 0;
+    }
     return comics;
   }
 }
 
 module.exports = Comic;
-
