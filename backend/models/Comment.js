@@ -1,12 +1,52 @@
 const db = require('../config/database');
 
 class Comment {
-  /**
-   * Helper: Load tất cả comments + replies bằng 2 queries thay vì N+1
-   * Query 1: Lấy parent comments
-   * Query 2: Lấy tất cả replies cho các parent comments đó
-   */
-  static async _loadCommentsWithReplies(whereClause, whereParams, params = {}) {
+  static async findByComicId(comicId, params = {}) {
+    const { page = 1, limit = 5, sort = 'popular' } = params;
+    const offset = (page - 1) * limit;
+
+    let orderBy = 'c.likes_count DESC, c.created_at DESC'; // Default: popular first
+    if (sort === 'newest') {
+      orderBy = 'c.created_at DESC';
+    } else if (sort === 'oldest') {
+      orderBy = 'c.created_at ASC';
+    }
+
+    const [comments] = await db.promise.query(
+      `SELECT c.*, 
+              u.username, 
+              u.avatar,
+              (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) as likes_count,
+              (SELECT COUNT(*) FROM comments c2 WHERE c2.parent_id = c.id) as replies_count
+       FROM comments c
+       LEFT JOIN users u ON c.user_id = u.id
+       WHERE c.comic_id = ? AND c.parent_id IS NULL
+       ORDER BY ${orderBy}
+       LIMIT ? OFFSET ?`,
+      [comicId, limit, offset]
+    );
+
+    // Load replies cho mỗi comment
+    for (let comment of comments) {
+      const [replies] = await db.promise.query(
+        `SELECT c.*, 
+                u.username, 
+                u.avatar,
+                (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) as likes_count
+         FROM comments c
+         LEFT JOIN users u ON c.user_id = u.id
+         WHERE c.parent_id = ?
+         ORDER BY c.created_at ASC
+         LIMIT 10`,
+        [comment.id]
+      );
+      comment.replies = replies;
+    }
+
+    return comments;
+  }
+
+  static async findByChapterId(chapterId, params = {}) {
     const { page = 1, limit = 5, sort = 'popular' } = params;
     const offset = (page - 1) * limit;
 
@@ -17,7 +57,6 @@ class Comment {
       orderBy = 'c.created_at ASC';
     }
 
-    // Query 1: Lấy parent comments (CHỈ 1 query)
     const [comments] = await db.promise.query(
       `SELECT c.*, 
               u.username, 
@@ -26,58 +65,30 @@ class Comment {
               (SELECT COUNT(*) FROM comments c2 WHERE c2.parent_id = c.id) as replies_count
        FROM comments c
        LEFT JOIN users u ON c.user_id = u.id
-       WHERE ${whereClause} AND c.parent_id IS NULL
+       WHERE c.chapter_id = ? AND c.parent_id IS NULL
        ORDER BY ${orderBy}
        LIMIT ? OFFSET ?`,
-      [...whereParams, limit, offset]
+      [chapterId, limit, offset]
     );
 
-    if (comments.length === 0) {
-      return comments;
-    }
-
-    // Query 2: Lấy TẤT CẢ replies cho tất cả parent comments (CHỈ 1 query thay vì N)
-    const parentIds = comments.map(c => c.id);
-    const placeholders = parentIds.map(() => '?').join(',');
-    
-    const [allReplies] = await db.promise.query(
-      `SELECT c.*, 
-              u.username, 
-              u.avatar,
-              (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) as likes_count
-       FROM comments c
-       LEFT JOIN users u ON c.user_id = u.id
-       WHERE c.parent_id IN (${placeholders})
-       ORDER BY c.created_at ASC`,
-      parentIds
-    );
-
-    // Group replies theo parent_id bằng Map (O(N) thay vì O(N²))
-    const repliesMap = new Map();
-    for (const reply of allReplies) {
-      if (!repliesMap.has(reply.parent_id)) {
-        repliesMap.set(reply.parent_id, []);
-      }
-      const replies = repliesMap.get(reply.parent_id);
-      if (replies.length < 10) { // Giới hạn 10 replies mỗi comment
-        replies.push(reply);
-      }
-    }
-
-    // Gắn replies vào comments
-    for (const comment of comments) {
-      comment.replies = repliesMap.get(comment.id) || [];
+    // Load replies cho mỗi comment
+    for (let comment of comments) {
+      const [replies] = await db.promise.query(
+        `SELECT c.*, 
+                u.username, 
+                u.avatar,
+                (SELECT COUNT(*) FROM comment_likes cl WHERE cl.comment_id = c.id) as likes_count
+         FROM comments c
+         LEFT JOIN users u ON c.user_id = u.id
+         WHERE c.parent_id = ?
+         ORDER BY c.created_at ASC
+         LIMIT 10`,
+        [comment.id]
+      );
+      comment.replies = replies;
     }
 
     return comments;
-  }
-
-  static async findByComicId(comicId, params = {}) {
-    return this._loadCommentsWithReplies('c.comic_id = ?', [comicId], params);
-  }
-
-  static async findByChapterId(chapterId, params = {}) {
-    return this._loadCommentsWithReplies('c.chapter_id = ?', [chapterId], params);
   }
 
   static async countByComicId(comicId) {
@@ -168,3 +179,4 @@ class Comment {
 }
 
 module.exports = Comment;
+

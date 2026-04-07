@@ -31,56 +31,6 @@
   transform: translateY(-2px);
 }
 
-.crawl-section {
-  background: var(--card-bg, #fff);
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  margin-bottom: 20px;
-}
-
-.crawl-section h2 {
-  font-size: 20px;
-  margin-bottom: 8px;
-  color: var(--text-color, #2c3e50);
-}
-
-.crawl-hint {
-  margin-bottom: 14px;
-  color: var(--text-color, #666);
-  font-size: 14px;
-}
-
-.crawl-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.crawl-row {
-  display: grid;
-  grid-template-columns: 1fr 180px;
-  gap: 12px;
-}
-
-.crawl-max-chapters {
-  min-width: 120px;
-}
-
-.crawl-actions {
-  display: flex;
-  justify-content: flex-start;
-}
-
-.crawl-result {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  background: rgba(46, 204, 113, 0.12);
-  color: #1e8449;
-  font-size: 14px;
-}
-
 .comic-form-section {
   background: var(--card-bg, #fff);
   padding: 30px;
@@ -604,15 +554,6 @@ th {
   background: #1a1a1a;
 }
 
-.dark .crawl-section {
-  background: #1a1a1a;
-}
-
-.dark .crawl-hint,
-.dark .crawl-result {
-  color: #e0e0e0;
-}
-
 .dark .admin-comics-page .page-title,
 .dark .comic-form-section h2,
 .dark .comics-table-section h2 {
@@ -1062,10 +1003,6 @@ th {
 }
 
 @media (max-width: 768px) {
-  .crawl-row {
-    grid-template-columns: 1fr;
-  }
-
   .form-row {
     grid-template-columns: 1fr;
   }

@@ -66,17 +66,6 @@ npm install
 1. Khởi động XAMPP và bật MySQL
 2. Mở phpMyAdmin (http://localhost/phpmyadmin)
 3. Import file `backend/database/schema.sql` để tạo database và bảng
-4. Chạy migration crawler:
-```bash
-cd backend
-npm run migrate:crawler
-```
-
-5. Nếu muốn chuyển sang dữ liệu clone-only (xóa truyện cũ):
-```bash
-cd backend
-npm run reset:clone-only
-```
 
 ### Bước 3: Cấu hình Backend
 
@@ -117,7 +106,6 @@ FRONTEND_URL=http://localhost:3000
 - `PORT` - Port của server (mặc định: 5000)
 - `DB_PASSWORD` - Mật khẩu MySQL (để trống nếu không có)
 - `FRONTEND_URL` - URL của frontend (dùng cho CORS)
-- `POPS_CRAWLER_ALLOW_INSECURE_TLS` - đặt `true` nếu máy bị lỗi TLS certificate chain khi crawl `pops.vn` trên Windows/Node
 
 **Lưu ý:** 
 - ⚠️ **JWT_SECRET là gì?** Đây là secret key dùng để mã hóa và xác thực JWT token khi user đăng nhập. Nó giống như "chìa khóa" để tạo và kiểm tra token.
@@ -313,15 +301,6 @@ DACN/
 - `DELETE /api/admin/users/:id` - Xóa người dùng
 - `GET /api/admin/comics/closed-vip` - Lấy danh sách truyện closed/VIP
 - `GET /api/admin/chapters/vip-all` - Lấy toàn bộ chương VIP
-- `POST /api/admin/crawl/pops` - Cào truyện từ POPS và lưu vào DB
-
-Ví dụ body:
-```json
-{
-  "comic_url": "https://pops.vn/comics/ten-truyen-bat-ky",
-  "max_chapters": 20
-}
-```
 
 ## ✨ Tính năng ReaCom
 

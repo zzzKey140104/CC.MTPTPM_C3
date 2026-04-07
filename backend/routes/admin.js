@@ -50,7 +50,6 @@ router.delete('/users/:id', adminController.deleteUser.bind(adminController));
 // Get closed and VIP comics
 router.get('/comics/closed-vip', adminController.getClosedAndVipComics.bind(adminController));
 router.get('/chapters/vip-all', adminController.getAllVipChapters.bind(adminController));
-router.post('/crawl/pops', adminController.crawlPopsComic.bind(adminController));
 
 module.exports = router;
 

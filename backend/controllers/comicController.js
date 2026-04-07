@@ -87,17 +87,19 @@ class ComicController {
       const isAdmin = req.user && req.user.role === 'admin';
       const isVip = req.user && (req.user.role === 'vip' || req.user.role === 'admin');
       
-      // Filter access_status ở SQL level thay vì JS level
-      const comics = await Comic.findByCategory(categoryId, { 
-        page: parseInt(page), 
-        limit: parseInt(limit),
-        isVip,
-        isAdmin
+      // Note: findByCategory doesn't support filtering yet, but we can filter in the query
+      const comics = await Comic.findByCategory(categoryId, { page: parseInt(page), limit: parseInt(limit) });
+      // Filter by access_status
+      const filteredComics = comics.filter(comic => {
+        if (isAdmin) return true;
+        if (comic.access_status === 'open') return true;
+        if (comic.access_status === 'vip' && isVip) return true;
+        return false;
       });
-      const total = await Comic.countByCategory(categoryId, isVip, isAdmin);
+      const total = await Comic.countByCategory(categoryId);
 
       return successResponse(res, {
-        data: comics,
+        data: filteredComics,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),

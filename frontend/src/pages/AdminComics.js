@@ -45,12 +45,6 @@ const AdminComics = () => {
   const [chapterImages, setChapterImages] = useState([]);
   const [submittingChapter, setSubmittingChapter] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [crawlForm, setCrawlForm] = useState({
-    comic_url: '',
-    max_chapters: 20
-  });
-  const [crawlLoading, setCrawlLoading] = useState(false);
-  const [crawlResult, setCrawlResult] = useState(null);
 
   useEffect(() => {
     if (!isAuthenticated || user?.role !== 'admin') {
@@ -197,14 +191,6 @@ const AdminComics = () => {
     }));
   };
 
-  const handleCrawlInputChange = (e) => {
-    const { name, value } = e.target;
-    setCrawlForm((prev) => ({
-      ...prev,
-      [name]: name === 'max_chapters' ? Number(value) : value
-    }));
-  };
-
   const handleCategoryChange = (categoryId) => {
     setFormData(prev => {
       const category_ids = prev.category_ids.includes(categoryId)
@@ -280,46 +266,6 @@ const AdminComics = () => {
       console.error('Error saving comic:', err);
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const handleCrawlComic = async (e) => {
-    e.preventDefault();
-    setError(null);
-    setCrawlResult(null);
-
-    if (!crawlForm.comic_url || !crawlForm.comic_url.trim()) {
-      setError('Vui lòng nhập URL truyện POPS');
-      return;
-    }
-
-    try {
-      setCrawlLoading(true);
-      const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5000/api/admin/crawl/pops', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          comic_url: crawlForm.comic_url.trim(),
-          max_chapters: Number(crawlForm.max_chapters) || 20
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setCrawlResult(data.data || null);
-        fetchData();
-      } else {
-        setError(data.message || 'Cào truyện thất bại');
-      }
-    } catch (err) {
-      setError('Không thể cào truyện. Vui lòng thử lại.');
-      console.error('Error crawling comic:', err);
-    } finally {
-      setCrawlLoading(false);
     }
   };
 
@@ -560,51 +506,6 @@ const AdminComics = () => {
         </div>
 
         {error && <div className="error-message">{error}</div>}
-
-        <div className="crawl-section">
-          <h2>Crawl truyện từ URL (POPS)</h2>
-          <p className="crawl-hint">
-            Dán URL truyện từ pops.vn, hệ thống sẽ tự lấy metadata và ảnh chương.
-          </p>
-          <form className="crawl-form" onSubmit={handleCrawlComic}>
-            <div className="crawl-row">
-              <div className="form-group">
-                <label>Comic URL *</label>
-                <input
-                  type="url"
-                  name="comic_url"
-                  value={crawlForm.comic_url}
-                  onChange={handleCrawlInputChange}
-                  placeholder="https://pops.vn/comics/..."
-                  required
-                />
-              </div>
-              <div className="form-group crawl-max-chapters">
-                <label>Số chương tối đa</label>
-                <input
-                  type="number"
-                  name="max_chapters"
-                  min="1"
-                  max="200"
-                  value={crawlForm.max_chapters}
-                  onChange={handleCrawlInputChange}
-                />
-              </div>
-            </div>
-            <div className="crawl-actions">
-              <button type="submit" className="btn-save" disabled={crawlLoading}>
-                {crawlLoading ? 'Đang cào dữ liệu...' : 'Bắt đầu crawl'}
-              </button>
-            </div>
-          </form>
-
-          {crawlResult && (
-            <div className="crawl-result">
-              <strong>Crawl thành công:</strong>{' '}
-              Comic ID {crawlResult.comicId} - {crawlResult.upsertedChapterCount} chương - {crawlResult.upsertedPageCount} ảnh
-            </div>
-          )}
-        </div>
 
         {showForm && (
           <div className="comic-form-section">

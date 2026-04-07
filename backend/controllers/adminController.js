@@ -6,7 +6,6 @@ const Favorite = require('../models/Favorite');
 const User = require('../models/User');
 const emailService = require('../utils/emailService');
 const db = require('../config/database');
-const popsCrawlerService = require('../services/popsCrawlerService');
 const { successResponse, errorResponse } = require('../utils/response');
 const path = require('path');
 const fs = require('fs');
@@ -441,24 +440,6 @@ class AdminController {
     } catch (error) {
       console.error('Error fetching all VIP and closed chapters:', error);
       return errorResponse(res, 'Lỗi server', 500);
-    }
-  }
-
-  async crawlPopsComic(req, res) {
-    try {
-      const { comic_url, max_chapters = 10 } = req.body;
-      if (!comic_url) {
-        return errorResponse(res, 'Thiếu comic_url', 400);
-      }
-
-      const result = await popsCrawlerService.crawlComicAndSave(comic_url, {
-        maxChapters: Number(max_chapters) || 10
-      });
-
-      return successResponse(res, result, 'Cào truyện POPS thành công');
-    } catch (error) {
-      console.error('Error crawling POPS comic:', error);
-      return errorResponse(res, error.message || 'Cào truyện thất bại', 500);
     }
   }
 

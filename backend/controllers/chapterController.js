@@ -25,13 +25,8 @@ class ChapterController {
         return errorResponse(res, 'Chương này chỉ dành cho thành viên VIP. Vui lòng nâng cấp tài khoản để đọc.', 403);
       }
 
-      // Chạy 3 queries SONG SONG thay vì tuần tự (tiết kiệm ~60% thời gian)
-      const [comic, prevChapter, nextChapter] = await Promise.all([
-        Comic.findById(chapter.comic_id, isVip, isAdmin),
-        Chapter.findPrevChapter(chapter.comic_id, chapter.chapter_number, isAdmin, isVip),
-        Chapter.findNextChapter(chapter.comic_id, chapter.chapter_number, isAdmin, isVip)
-      ]);
-
+      // Kiểm tra access_status của truyện
+      const comic = await Comic.findById(chapter.comic_id, isVip, isAdmin);
       if (!comic) {
         return errorResponse(res, 'Truyện này không tồn tại hoặc bạn không có quyền truy cập', 404);
       }
@@ -43,6 +38,11 @@ class ChapterController {
       if (comic.access_status === 'vip' && !isVip) {
         return errorResponse(res, 'Truyện này chỉ dành cho thành viên VIP. Vui lòng nâng cấp tài khoản để đọc.', 403);
       }
+
+      const prevChapter = await Chapter.findPrevChapter(chapter.comic_id, chapter.chapter_number, isAdmin, isVip);
+      const nextChapter = await Chapter.findNextChapter(chapter.comic_id, chapter.chapter_number, isAdmin, isVip);
+
+      // Không tăng lượt xem ở đây nữa, sẽ tách riêng endpoint
 
       // Parse images nếu là string
       if (chapter.images) {
@@ -62,7 +62,8 @@ class ChapterController {
       } else {
         chapter.images = [];
       }
-
+      
+      console.log('Chapter images after parsing:', chapter.images);
 
       return successResponse(res, {
         ...chapter,

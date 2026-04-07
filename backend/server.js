@@ -4,7 +4,6 @@ const compression = require('compression');
 const dotenv = require('dotenv');
 const path = require('path');
 const db = require('./config/database');
-const ChapterAudio = require('./models/ChapterAudio');
 const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 // Load environment variables
@@ -63,7 +62,6 @@ app.use('/api/comments', require('./routes/comments'));
 app.use('/api/admin', require('./routes/admin'));
 app.use('/api/ai', require('./routes/ai'));
 app.use('/api/payments', require('./routes/payments'));
-app.use('/api/audio', require('./routes/audio'));
 
 // Error handling middleware (phải đặt sau routes)
 app.use(notFound);
@@ -79,42 +77,13 @@ db.getConnection((err, connection) => {
   }
 });
 
-// Warn early if audio table is missing in DB schema.
-ChapterAudio.ensureTableExists()
-  .then((exists) => {
-    if (!exists) {
-      console.warn('⚠️  Missing table: chapter_audios. Run migration: node database/migrations/add_chapter_audios_table.js');
-    }
-  })
-  .catch((error) => {
-    console.warn('⚠️  Could not verify chapter_audios table:', error.message);
-  });
-
-const PORT = Number(process.env.PORT || 5000);
+const PORT = process.env.PORT || 5000;
 
 if (!process.env.PORT) {
   console.log(`ℹ️  PORT không được cấu hình, sử dụng mặc định: ${PORT}`);
 }
 
-const MAX_PORT_RETRY = 10;
-
-function startServer(port, retryCount = 0) {
-  const server = app.listen(port, () => {
-    console.log(`🚀 Server running on port ${port}`);
-  });
-
-  server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE' && retryCount < MAX_PORT_RETRY) {
-      const nextPort = port + 1;
-      console.warn(`⚠️  Port ${port} đang được sử dụng, thử port ${nextPort}...`);
-      setTimeout(() => startServer(nextPort, retryCount + 1), 300);
-      return;
-    }
-
-    console.error('❌ Không thể khởi động server:', error);
-    process.exit(1);
-  });
-}
-
-startServer(PORT);
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+});
 

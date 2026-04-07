@@ -284,34 +284,5 @@ export const simulatePaymentSuccess = (orderId) => {
   return api.post(`/payments/simulate-success/${orderId}`);
 };
 
-// Audio API
-export const getChapterAudio = (chapterId) => {
-  return api.get(`/audio/chapter/${chapterId}`);
-};
-
-export const createChapterAudio = (chapterId, data = {}) => {
-  return api.post(`/audio/chapter/${chapterId}`, data);
-};
-
-export const deleteChapterAudio = (chapterId) => {
-  return api.delete(`/audio/chapter/${chapterId}`);
-};
-
-export const getAudioProcessingStatus = (chapterId) => {
-  return api.get(`/audio/chapter/${chapterId}/status`);
-};
-
-export const getAudioReadiness = (chapterId) => {
-  return api.get(`/audio/chapter/${chapterId}/readiness`);
-};
-
-export const getAvailableVoices = () => {
-  return api.get('/audio/voices');
-};
-
-export const generateAudioForComicChapters = (comicId, data = {}) => {
-  return api.post(`/audio/comic/${comicId}/generate`, data);
-};
-
 export default api;
 

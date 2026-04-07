@@ -241,21 +241,6 @@ const ComicDetail = () => {
                 <span className="meta-value">{comic.author || 'Chưa rõ'}</span>
               </div>
               <div className="meta-item">
-                <span className="meta-icon">🎨</span>
-                <span className="meta-label">Họa sĩ:</span>
-                <span className="meta-value">{comic.artist || 'Chưa rõ'}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-icon">🔞</span>
-                <span className="meta-label">Xếp hạng:</span>
-                <span className="meta-value">{comic.rating || 'Chưa rõ'}</span>
-              </div>
-              <div className="meta-item">
-                <span className="meta-icon">🏢</span>
-                <span className="meta-label">Nội dung bởi:</span>
-                <span className="meta-value">{comic.content_by || 'Chưa rõ'}</span>
-              </div>
-              <div className="meta-item">
                 <span className="meta-icon">📡</span>
                 <span className="meta-label">Tình trạng:</span>
                 <span className="meta-value">
