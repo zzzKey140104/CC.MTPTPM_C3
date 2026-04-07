@@ -1,0 +1,104 @@
+.favorites-page {
+  padding: 20px 0;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-color, #2c3e50);
+}
+
+.comics-grid-favorites {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 18px;
+  padding: 25px;
+  background: linear-gradient(135deg, rgba(245, 230, 211, 0.3) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(245, 230, 211, 0.3) 100%);
+  border-radius: 20px;
+  box-shadow: 
+    0 6px 24px rgba(44, 62, 107, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  position: relative;
+  overflow: hidden;
+  border: 2px solid var(--color-slate-blue);
+}
+
+.comics-grid-favorites::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(217, 125, 84, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  animation: float 20s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(-5%, -5%) rotate(5deg);
+  }
+}
+
+.no-results {
+  text-align: center;
+  padding: 60px 20px;
+}
+
+.no-results p {
+  font-size: 18px;
+  color: var(--text-color, #7f8c8d);
+  margin-bottom: 10px;
+}
+
+.sub-text {
+  font-size: 14px;
+  color: var(--text-color, #95a5a6);
+}
+
+/* Dark mode */
+.dark .page-title {
+  color: #e0e0e0;
+}
+
+.dark .comics-grid-favorites {
+  background: linear-gradient(135deg, rgba(30, 42, 74, 0.4) 0%, rgba(26, 26, 26, 0.6) 50%, rgba(30, 42, 74, 0.4) 100%);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(107, 122, 159, 0.2);
+  border-color: var(--color-slate-blue);
+}
+
+.dark .comics-grid-favorites::after {
+  background: radial-gradient(circle, rgba(217, 125, 84, 0.15) 0%, transparent 70%);
+}
+
+@media (max-width: 1200px) {
+  .comics-grid-favorites {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .comics-grid-favorites {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 15px;
+  }
+}
+
+@media (max-width: 480px) {
+  .comics-grid-favorites {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+}
+

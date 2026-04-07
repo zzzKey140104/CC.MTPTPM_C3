@@ -1,0 +1,232 @@
+.comics-list-page {
+  padding: 20px 0;
+}
+
+.page-title {
+  font-size: 28px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-color, #2c3e50);
+  text-align: center;
+}
+
+.filters-section {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background: var(--card-bg, #fff);
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+
+.filter-group label {
+  font-weight: 500;
+  color: var(--text-color, #333);
+  font-size: 14px;
+}
+
+.filter-select {
+  padding: 10px 15px;
+  border: 1px solid var(--border-color, #ddd);
+  border-radius: 5px;
+  font-size: 14px;
+  background: var(--input-bg, #fff);
+  color: var(--text-color, #333);
+  cursor: pointer;
+  transition: border-color 0.3s;
+}
+
+.filter-select:focus {
+  outline: none;
+  border-color: var(--primary-color, #667eea);
+}
+
+.comics-grid-list {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 18px;
+  margin-bottom: 25px;
+  padding: 25px;
+  background: linear-gradient(135deg, rgba(245, 230, 211, 0.3) 0%, rgba(255, 255, 255, 0.5) 50%, rgba(245, 230, 211, 0.3) 100%);
+  border-radius: 20px;
+  box-shadow: 
+    0 6px 24px rgba(44, 62, 107, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  position: relative;
+  overflow: hidden;
+  border: 2px solid var(--color-slate-blue);
+}
+
+.comics-grid-list::after {
+  content: '';
+  position: absolute;
+  top: -50%;
+  right: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(circle, rgba(217, 125, 84, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+  animation: float 20s ease-in-out infinite;
+}
+
+@keyframes float {
+  0%, 100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(-5%, -5%) rotate(5deg);
+  }
+}
+
+.pagination-section {
+  margin-top: 40px;
+  display: flex;
+  justify-content: center;
+}
+
+.pagination {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.page-btn {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color, #ddd);
+  background: var(--card-bg, #fff);
+  color: var(--text-color, #333);
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s;
+  min-width: 40px;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--primary-color, #667eea);
+  color: white;
+  border-color: var(--primary-color, #667eea);
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-btn.active {
+  background: var(--primary-color, #667eea);
+  color: white;
+  border-color: var(--primary-color, #667eea);
+}
+
+.page-ellipsis {
+  padding: 8px 5px;
+  color: var(--text-color, #666);
+}
+
+.no-results {
+  text-align: center;
+  padding: 60px 20px;
+  font-size: 18px;
+  color: var(--text-color, #7f8c8d);
+}
+
+/* Dark mode */
+.dark .page-title {
+  color: #e0e0e0;
+}
+
+.dark .comics-grid-list {
+  background: linear-gradient(135deg, rgba(30, 42, 74, 0.4) 0%, rgba(26, 26, 26, 0.6) 50%, rgba(30, 42, 74, 0.4) 100%);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(107, 122, 159, 0.2);
+  border-color: var(--color-slate-blue);
+}
+
+.dark .comics-grid-list::after {
+  background: radial-gradient(circle, rgba(217, 125, 84, 0.15) 0%, transparent 70%);
+}
+
+/* Làm khối lọc nổi bật hơn trên nền tối */
+.dark .filters-section {
+  background: #1f1f1f;
+  border: 1px solid #333;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7);
+}
+
+.dark .filter-select {
+  background: #2a2a2a;
+  border-color: #3a3a3a;
+  color: #e0e0e0;
+}
+
+.dark .filter-group label {
+  color: #d0d0d0;
+}
+
+.dark .page-btn {
+  background: #1f1f1f;
+  border-color: #333;
+  color: #e0e0e0;
+}
+
+.dark .page-btn:hover:not(:disabled) {
+  background: #667eea;
+  color: white;
+}
+
+@media (max-width: 1200px) {
+  .comics-grid-list {
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    padding: 20px;
+  }
+}
+
+@media (max-width: 768px) {
+  .comics-grid-list {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    padding: 15px;
+  }
+  
+  .filters-section {
+    flex-direction: column;
+  }
+  
+  .filter-group {
+    min-width: 100%;
+  }
+  
+  .pagination {
+    gap: 3px;
+  }
+  
+  .page-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-width: 35px;
+  }
+}
+
+@media (max-width: 480px) {
+  .comics-grid-list {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+}
+

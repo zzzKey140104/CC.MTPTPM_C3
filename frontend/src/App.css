@@ -1,0 +1,117 @@
+.App {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(to bottom, var(--color-cream-light) 0%, var(--color-white) 50%, var(--color-cream-light) 100%);
+  background-attachment: fixed;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+.dark .App {
+  background: linear-gradient(to bottom, var(--color-deep-blue-dark) 0%, #101010 50%, var(--color-deep-blue-dark) 100%);
+  background-attachment: fixed;
+  color: var(--color-cream-light);
+}
+
+.main-content {
+  flex: 1;
+  padding-top: 130px;
+  background-color: inherit;
+  color: inherit;
+}
+
+.main-content.chapter-mode {
+  background-color: #111827; /* Nền xám đen dịu cho trang đọc chương (chế độ sáng) */
+}
+
+.dark .main-content.chapter-mode {
+  background-color: inherit; /* Trong nền tối, dùng đúng màu nền tối chung */
+}
+
+.container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+/* Loading Spinner */
+.loading {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}
+
+.spinner {
+  border: 4px solid var(--color-cream);
+  border-top: 4px solid var(--color-terracotta);
+  border-radius: 50%;
+  width: 50px;
+  height: 50px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Error Message */
+.error-message {
+  background-color: #fee;
+  color: #c33;
+  padding: 15px;
+  border-radius: 5px;
+  margin: 20px 0;
+  text-align: center;
+}
+
+/* Button Styles */
+.btn {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary {
+  background: var(--gradient-primary);
+  color: white;
+  box-shadow: 0 4px 16px rgba(44, 62, 107, 0.3);
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(44, 62, 107, 0.4);
+}
+
+.btn-secondary {
+  background: var(--gradient-accent);
+  color: white;
+  box-shadow: 0 4px 16px rgba(217, 125, 84, 0.3);
+}
+
+.btn-secondary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(217, 125, 84, 0.4);
+}
+
+/* Card Styles */
+.card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(44, 62, 107, 0.08);
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  border: 1px solid rgba(107, 122, 159, 0.1);
+}
+
+.card:hover {
+  transform: translateY(-8px) scale(1.02);
+  box-shadow: 0 12px 32px rgba(44, 62, 107, 0.15);
+}
+
