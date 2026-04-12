@@ -102,6 +102,8 @@ class AudioService {
 
       const duration = ttsService.estimateDuration(refinedText, rate);
 
+      const pageSyncMeta = this.buildPageSyncFromOcr(ocrResults, chapter.images.length, ocrService);
+
       const audioData = {
         chapter_id: chapterId,
         text_content: refinedText,
@@ -110,7 +112,8 @@ class AudioService {
         status: 'completed',
         error_message: null,
         error_code: null,
-        provider: ttsResult.provider || null
+        provider: ttsResult.provider || null,
+        page_sync: JSON.stringify(pageSyncMeta)
       };
 
       if (chapterAudio) {
@@ -157,6 +160,21 @@ class AudioService {
     } finally {
       this.processingQueue.delete(chapterId);
     }
+  }
+
+  /**
+   * Trọng số theo độ dài văn bản OCR từng trang (sau cleanPageText).
+   * Dùng client map thời gian → ảnh gần với tốc độ đọc TTS hơn so với chia đều theo số ảnh.
+   */
+  buildPageSyncFromOcr(ocrResults, imageCount, ocrService) {
+    const weights = [];
+    for (let i = 0; i < imageCount; i++) {
+      const r = ocrResults[i];
+      const raw = r && r.success !== false ? String(r?.text ?? '') : '';
+      const cleaned = ocrService.cleanPageText(raw).trim();
+      weights.push(Math.max(1, cleaned.length));
+    }
+    return { v: 1, weights };
   }
 
   mapUnknownErrorCode(error) {

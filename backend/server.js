@@ -81,10 +81,12 @@ db.getConnection((err, connection) => {
 
 // Warn early if audio table is missing in DB schema.
 ChapterAudio.ensureTableExists()
-  .then((exists) => {
+  .then(async (exists) => {
     if (!exists) {
       console.warn('⚠️  Missing table: chapter_audios. Run migration: node database/migrations/add_chapter_audios_table.js');
+      return;
     }
+    await ChapterAudio.ensurePageSyncColumn();
   })
   .catch((error) => {
     console.warn('⚠️  Could not verify chapter_audios table:', error.message);

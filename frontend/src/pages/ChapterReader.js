@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useChapter } from '../hooks/useChapter';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,9 +13,23 @@ import {
 import Loading from '../components/common/Loading';
 import CommentsSection from '../components/features/CommentsSection';
 import { formatDate, getImageUrl } from '../utils/helpers';
+import {
+  parsePageSync,
+  timeToImageIndex,
+  segmentStartTime,
+  timeInSegmentForScroll
+} from '../utils/chapterAudioSync';
 import { API_BASE_URL } from '../constants';
 import { motion, AnimatePresence } from 'framer-motion';
 import './ChapterReader.css';
+
+/** Ảnh/văn bản cao hơn màn hình vẫn được coi là “đang xem” nếu còn giao với viewport (không yêu cầu nằm gọn). */
+function isNodeVerticallyInView(node, margin = 56) {
+  if (!node || typeof node.getBoundingClientRect !== 'function') return true;
+  const rect = node.getBoundingClientRect();
+  const h = window.innerHeight;
+  return rect.bottom > margin && rect.top < h - margin;
+}
 
 const ChapterReader = () => {
   const { id } = useParams();
@@ -46,9 +60,12 @@ const ChapterReader = () => {
   const [textParagraphs, setTextParagraphs] = useState([]);
   const [currentParagraphIndex, setCurrentParagraphIndex] = useState(-1);
   const [currentImageIndex, setCurrentImageIndex] = useState(-1);
-  const paragraphRefs = useRef([]);
-  const imageRefs = useRef([]);
   const lastAutoScrollAtRef = useRef(0);
+  const suppressScrollToAudioSeekRef = useRef(false);
+  const scrollToAudioDebounceRef = useRef(null);
+
+  /** Khi bật: cuộn trang → seek audio tới đoạn/trang đang ở giữa màn hình (hai chiều với audio → cuộn). */
+  const [syncAudioToScroll, setSyncAudioToScroll] = useState(true);
 
   // Parse images from chapter data
   const images = React.useMemo(() => {
@@ -68,6 +85,28 @@ const ChapterReader = () => {
     return [];
   }, [chapter?.images]);
 
+  const hasTextContent = !!(chapter?.content && chapter.content.toString().trim() !== '');
+  const canShowText = hasTextContent;
+  const canShowImages = images.length > 0;
+  const displayMode = React.useMemo(
+    () => (canShowImages && readMode === 'images' ? 'images' : 'text'),
+    [canShowImages, readMode]
+  );
+
+  const paragraphRefList = React.useMemo(
+    () => textParagraphs.map(() => React.createRef()),
+    [textParagraphs]
+  );
+  const imageRefList = React.useMemo(
+    () => images.map(() => React.createRef()),
+    [images]
+  );
+
+  const pageSyncMeta = React.useMemo(
+    () => parsePageSync(chapterAudio?.page_sync),
+    [chapterAudio?.page_sync]
+  );
+
   const audioUrl = React.useMemo(() => {
     const rawAudioUrl = chapterAudio?.audio_url;
     if (!rawAudioUrl || typeof rawAudioUrl !== 'string') return '';
@@ -77,6 +116,107 @@ const ChapterReader = () => {
     const normalizedPath = rawAudioUrl.startsWith('/') ? rawAudioUrl : `/${rawAudioUrl}`;
     return `${apiOrigin}${normalizedPath}`;
   }, [chapterAudio?.audio_url]);
+
+  const seekAudioToViewportCenter = useCallback(() => {
+    if (!syncAudioToScroll) return;
+    if (!audioRef.current || !chapterAudio) return;
+    if (suppressScrollToAudioSeekRef.current) return;
+
+    const audio = audioRef.current;
+    const duration =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : chapterAudio.duration || 0;
+    if (!duration || !Number.isFinite(duration)) return;
+
+    const listLen = displayMode === 'text' ? textParagraphs.length : images.length;
+    if (listLen <= 0) return;
+
+    const refs = displayMode === 'text' ? paragraphRefList : imageRefList;
+    const centerY = window.innerHeight / 2;
+    let bestIndex = -1;
+    let bestScore = -Infinity;
+
+    refs.forEach((ref, i) => {
+      const el = ref?.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const visibleTop = Math.max(r.top, 0);
+      const visibleBottom = Math.min(r.bottom, window.innerHeight);
+      const visibleHeight = Math.max(0, visibleBottom - visibleTop);
+      const elCenter = (r.top + r.bottom) / 2;
+      const dist = Math.abs(elCenter - centerY);
+      const score = visibleHeight * 4 - dist;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = i;
+      }
+    });
+
+    if (bestIndex < 0) return;
+
+    let targetTime = 0;
+    if (displayMode === 'text') {
+      const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
+      if (totalChars <= 0) return;
+      let cum = 0;
+      for (let i = 0; i < bestIndex; i++) {
+        cum += textParagraphs[i].length;
+      }
+      const start = (cum / totalChars) * duration;
+      const end = ((cum + textParagraphs[bestIndex].length) / totalChars) * duration;
+      targetTime = start + (end - start) * 0.05;
+    } else {
+      targetTime = timeInSegmentForScroll(
+        bestIndex,
+        duration,
+        images.length,
+        pageSyncMeta,
+        0.12
+      );
+    }
+
+    targetTime = Math.min(Math.max(0, targetTime), Math.max(0, duration - 0.05));
+    if (Math.abs(audio.currentTime - targetTime) < 0.45) return;
+
+    audio.currentTime = targetTime;
+  }, [
+    syncAudioToScroll,
+    chapterAudio,
+    displayMode,
+    textParagraphs,
+    images,
+    paragraphRefList,
+    imageRefList,
+    pageSyncMeta
+  ]);
+
+  useEffect(() => {
+    if (!showAudioPlayer || !chapterAudio || !syncAudioToScroll) return;
+
+    const scheduleSeek = () => {
+      if (suppressScrollToAudioSeekRef.current) return;
+      if (scrollToAudioDebounceRef.current) {
+        clearTimeout(scrollToAudioDebounceRef.current);
+      }
+      scrollToAudioDebounceRef.current = setTimeout(() => {
+        scrollToAudioDebounceRef.current = null;
+        seekAudioToViewportCenter();
+      }, 380);
+    };
+
+    window.addEventListener('scroll', scheduleSeek, { passive: true });
+    window.addEventListener('resize', scheduleSeek, { passive: true });
+
+    return () => {
+      window.removeEventListener('scroll', scheduleSeek);
+      window.removeEventListener('resize', scheduleSeek);
+      if (scrollToAudioDebounceRef.current) {
+        clearTimeout(scrollToAudioDebounceRef.current);
+        scrollToAudioDebounceRef.current = null;
+      }
+    };
+  }, [showAudioPlayer, chapterAudio, syncAudioToScroll, seekAudioToViewportCenter, id]);
 
   const handleScrollToTop = () => {
     window.scrollTo({
@@ -229,18 +369,8 @@ const ChapterReader = () => {
       const content = chapter.content.toString();
       const paragraphs = content.split('\n').filter(p => p.trim().length > 0);
       setTextParagraphs(paragraphs);
-      paragraphRefs.current = paragraphs.map(() => React.createRef());
     }
   }, [chapter]);
-
-  // Initialize image refs when images change
-  useEffect(() => {
-    if (images.length > 0) {
-      imageRefs.current = images.map(() => React.createRef());
-    }
-  }, [images]);
-
-
 
   const handleCreateAudio = async () => {
     if (!isAuthenticated) {
@@ -282,9 +412,12 @@ const ChapterReader = () => {
     if (!audioRef.current || !chapterAudio) return;
 
     const audio = audioRef.current;
-    const duration = chapterAudio.duration || audio.duration;
+    const duration =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : chapterAudio.duration || 0;
 
-    if (readMode === 'text' && textParagraphs.length > 0) {
+    if (displayMode === 'text' && textParagraphs.length > 0) {
       const nextIndex = Math.min(currentParagraphIndex + 1, textParagraphs.length - 1);
       const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
       let cumulativeChars = 0;
@@ -295,10 +428,10 @@ const ChapterReader = () => {
 
       const targetTime = (cumulativeChars / totalChars) * duration;
       audio.currentTime = Math.max(0, targetTime - 1); // Start 1 second before
-    } else if (readMode === 'images' && images.length > 0) {
+    } else if (displayMode === 'images' && images.length > 0) {
       const nextIndex = Math.min(currentImageIndex + 1, images.length - 1);
-      const targetTime = ((nextIndex + 1) / images.length) * duration;
-      audio.currentTime = Math.max(0, targetTime - 1);
+      const start = segmentStartTime(nextIndex, duration, images.length, pageSyncMeta);
+      audio.currentTime = Math.max(0, start - 0.25);
     }
   };
 
@@ -306,9 +439,12 @@ const ChapterReader = () => {
     if (!audioRef.current || !chapterAudio) return;
 
     const audio = audioRef.current;
-    const duration = chapterAudio.duration || audio.duration;
+    const duration =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : chapterAudio.duration || 0;
 
-    if (readMode === 'text' && textParagraphs.length > 0) {
+    if (displayMode === 'text' && textParagraphs.length > 0) {
       const prevIndex = Math.max(currentParagraphIndex - 1, 0);
       const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
       let cumulativeChars = 0;
@@ -319,9 +455,9 @@ const ChapterReader = () => {
 
       const targetTime = (cumulativeChars / totalChars) * duration;
       audio.currentTime = targetTime;
-    } else if (readMode === 'images' && images.length > 0) {
+    } else if (displayMode === 'images' && images.length > 0) {
       const prevIndex = Math.max(currentImageIndex - 1, 0);
-      const targetTime = (prevIndex / images.length) * duration;
+      const targetTime = segmentStartTime(prevIndex, duration, images.length, pageSyncMeta);
       audio.currentTime = targetTime;
     }
   };
@@ -337,14 +473,21 @@ const ChapterReader = () => {
     if (!audioRef.current || !chapterAudio) return;
 
     const audio = audioRef.current;
-    const duration = chapterAudio.duration || audio.duration;
+    const duration =
+      Number.isFinite(audio.duration) && audio.duration > 0
+        ? audio.duration
+        : chapterAudio.duration || 0;
 
     if (!duration) return;
 
     const updateCurrentContent = () => {
       const currentTime = audio.currentTime;
+      const effDuration =
+        Number.isFinite(audio.duration) && audio.duration > 0
+          ? audio.duration
+          : duration;
 
-      if (readMode === 'text' && textParagraphs.length > 0) {
+      if (displayMode === 'text' && textParagraphs.length > 0) {
         // Sync for text mode
         const totalChars = textParagraphs.reduce((sum, p) => sum + p.length, 0);
         let cumulativeChars = 0;
@@ -352,8 +495,8 @@ const ChapterReader = () => {
 
         for (let i = 0; i < textParagraphs.length; i++) {
           cumulativeChars += textParagraphs[i].length;
-          const paragraphStartTime = (cumulativeChars - textParagraphs[i].length) / totalChars * duration;
-          const paragraphEndTime = cumulativeChars / totalChars * duration;
+          const paragraphStartTime = (cumulativeChars - textParagraphs[i].length) / totalChars * effDuration;
+          const paragraphEndTime = cumulativeChars / totalChars * effDuration;
 
           if (currentTime >= paragraphStartTime && currentTime <= paragraphEndTime) {
             targetIndex = i;
@@ -361,50 +504,73 @@ const ChapterReader = () => {
           }
         }
 
-        if (targetIndex !== currentParagraphIndex) {
-          setCurrentParagraphIndex(targetIndex);
-          setCurrentImageIndex(-1); // Reset image index
+        if (targetIndex >= 0) {
+          if (targetIndex !== currentParagraphIndex) {
+            setCurrentParagraphIndex(targetIndex);
+            setCurrentImageIndex(-1);
+          }
 
-          // Scroll to the paragraph if it's different and not visible
-          if (targetIndex >= 0 && paragraphRefs.current[targetIndex]?.current) {
-            const element = paragraphRefs.current[targetIndex].current;
-            const rect = element.getBoundingClientRect();
-            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
-
+          const element = paragraphRefList[targetIndex]?.current;
+          if (element) {
             const now = Date.now();
-            const canAutoScroll = now - lastAutoScrollAtRef.current > 1000;
-            if (!isVisible && canAutoScroll) {
+            const canAutoScroll = now - lastAutoScrollAtRef.current > 450;
+            if (
+              !isNodeVerticallyInView(element) &&
+              canAutoScroll &&
+              !audio.paused
+            ) {
               lastAutoScrollAtRef.current = now;
+              suppressScrollToAudioSeekRef.current = true;
               element.scrollIntoView({
                 behavior: 'smooth',
-                block: 'center'
+                block: 'center',
+                inline: 'nearest'
               });
+              window.setTimeout(() => {
+                suppressScrollToAudioSeekRef.current = false;
+              }, 700);
             }
           }
         }
-      } else if (readMode === 'images' && images.length > 0) {
-        // Sync for images mode
-        const targetIndex = Math.floor((currentTime / duration) * images.length);
+      } else if (displayMode === 'images' && images.length > 0) {
+        // Sync ảnh: dùng page_sync (trọng số OCR/từng trang) nếu có — chính xác hơn chia đều
+        const targetIndex = timeToImageIndex(
+          currentTime,
+          effDuration,
+          images.length,
+          pageSyncMeta
+        );
 
-        if (targetIndex !== currentImageIndex && targetIndex < images.length) {
+        if (targetIndex !== currentImageIndex) {
           setCurrentImageIndex(targetIndex);
-          setCurrentParagraphIndex(-1); // Reset paragraph index
+          setCurrentParagraphIndex(-1);
+        }
 
-          // Scroll to the image if it's different and not visible
-          if (imageRefs.current[targetIndex]?.current) {
-            const element = imageRefs.current[targetIndex].current;
-            const rect = element.getBoundingClientRect();
-            const isVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
-
-            const now = Date.now();
-            const canAutoScroll = now - lastAutoScrollAtRef.current > 1000;
-            if (!isVisible && canAutoScroll) {
-              lastAutoScrollAtRef.current = now;
-              element.scrollIntoView({
-                behavior: 'smooth',
-                block: 'center'
+        const element = imageRefList[targetIndex]?.current;
+        if (element) {
+          const now = Date.now();
+          const canAutoScroll = now - lastAutoScrollAtRef.current > 450;
+          if (
+            !isNodeVerticallyInView(element) &&
+            canAutoScroll &&
+            !audio.paused
+          ) {
+            lastAutoScrollAtRef.current = now;
+            suppressScrollToAudioSeekRef.current = true;
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                const el = imageRefList[targetIndex]?.current;
+                if (!el) return;
+                el.scrollIntoView({
+                  behavior: 'smooth',
+                  block: 'start',
+                  inline: 'nearest'
+                });
               });
-            }
+            });
+            window.setTimeout(() => {
+              suppressScrollToAudioSeekRef.current = false;
+            }, 700);
           }
         }
       }
@@ -422,16 +588,32 @@ const ChapterReader = () => {
       setIsPlaying(false);
     };
 
+    const onLoadedMetadata = () => {
+      updateCurrentContent();
+    };
+
     audio.addEventListener('timeupdate', handleTimeUpdate);
     audio.addEventListener('play', handlePlay);
     audio.addEventListener('pause', handlePause);
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
 
     return () => {
       audio.removeEventListener('timeupdate', handleTimeUpdate);
       audio.removeEventListener('play', handlePlay);
       audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
-  }, [chapterAudio, textParagraphs, currentParagraphIndex, currentImageIndex, readMode, images]);
+  }, [
+    chapterAudio,
+    textParagraphs,
+    currentParagraphIndex,
+    currentImageIndex,
+    displayMode,
+    images,
+    paragraphRefList,
+    imageRefList,
+    pageSyncMeta
+  ]);
 
   const formatDuration = (seconds) => {
     if (!seconds) return '0:00';
@@ -562,19 +744,13 @@ const ChapterReader = () => {
     );
   }
 
-
-
-  const hasTextContent = chapter.content && chapter.content.toString().trim() !== '';
-  const canShowText = hasTextContent;
-  const canShowImages = images.length > 0;
-  const displayMode = canShowImages && readMode === 'images' ? 'images' : 'text';
-  
   // Debug log
   if (images.length === 0 && chapter.images) {
     console.warn('No images found. Chapter images data:', chapter.images);
   }
   
   const chapterDate = chapter.created_at ? formatDate(chapter.created_at) : '';
+  const hasBottomAudio = showAudioPlayer && chapterAudio && audioUrl;
 
   return (
     <div className="chapter-reader">
@@ -617,105 +793,6 @@ const ChapterReader = () => {
             <span className="nav-btn disabled">Chương sau →</span>
           )}
         </div>
-
-        {/* Audio Player Section */}
-        <AnimatePresence>
-          {showAudioPlayer && chapterAudio && audioUrl && (
-            <motion.div
-              className="chapter-audio-section"
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              transition={{ duration: 0.3 }}
-            >
-              <div className="audio-player-container">
-                <div className="audio-player-header">
-                  <span className="audio-icon">🎧</span>
-                  <span className="audio-title">Audio Chương</span>
-                  {chapterAudio.duration && (
-                    <span className="audio-duration">({formatDuration(chapterAudio.duration)})</span>
-                  )}
-                </div>
-                <div className="audio-player-controls">
-                  <audio
-                    ref={audioRef}
-                    src={audioUrl}
-                    onEnded={handleAudioEnded}
-                    onError={(e) => {
-                      console.error('Audio playback error:', e);
-                      alert('Không thể phát audio');
-                    }}
-                  />
-
-                  {/* Skip Controls */}
-                  <div className="audio-skip-controls">
-                    <button
-                      className="audio-btn audio-btn-skip"
-                      onClick={skipToPrev}
-                      title="Đoạn trước"
-                      disabled={!chapterAudio}
-                    >
-                      ⏮️
-                    </button>
-                    <button
-                      className={`audio-btn ${isPlaying ? 'playing' : ''}`}
-                      onClick={togglePlayPause}
-                      title={isPlaying ? 'Tạm dừng' : 'Phát audio'}
-                    >
-                      {isPlaying ? '⏸️' : '▶️'}
-                    </button>
-                    <button
-                      className="audio-btn audio-btn-skip"
-                      onClick={skipToNext}
-                      title="Đoạn sau"
-                      disabled={!chapterAudio}
-                    >
-                      ⏭️
-                    </button>
-                  </div>
-
-                  {/* Progress Info */}
-                  <div className="audio-progress-info">
-                    {readMode === 'text' && textParagraphs.length > 0 && (
-                      <div className="progress-text">
-                        <span>Đoạn: {currentParagraphIndex >= 0 ? currentParagraphIndex + 1 : 0}/{textParagraphs.length}</span>
-                        <div className="progress-bar">
-                          <div
-                            className="progress-fill"
-                            style={{
-                              width: `${textParagraphs.length > 0 ? ((currentParagraphIndex + 1) / textParagraphs.length) * 100 : 0}%`
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    )}
-                    {readMode === 'images' && images.length > 0 && (
-                      <div className="progress-text">
-                        <span>Trang: {currentImageIndex >= 0 ? currentImageIndex + 1 : 0}/{images.length}</span>
-                        <div className="progress-bar">
-                          <div
-                            className="progress-fill"
-                            style={{
-                              width: `${images.length > 0 ? ((currentImageIndex + 1) / images.length) * 100 : 0}%`
-                            }}
-                          ></div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    className="audio-btn-close"
-                    onClick={() => setShowAudioPlayer(false)}
-                    title="Ẩn audio player"
-                  >
-                    ✕
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
 
         {/* Audio Create Button (when no audio exists) */}
         {!chapterAudio && !loadingAudio && (
@@ -835,7 +912,6 @@ const ChapterReader = () => {
               return (
                 <motion.div
                   key={index}
-                  ref={imageRefs.current[index]}
                   className={`chapter-page-wrapper ${isCurrentImage ? 'current-audio-page' : ''}`}
                   initial={{ opacity: 0.8 }}
                   animate={{
@@ -844,23 +920,25 @@ const ChapterReader = () => {
                   }}
                   transition={{ duration: 0.3 }}
                 >
-                  <div className="chapter-page-number">
-                    Trang {index + 1}
-                    {isCurrentImage && <span className="audio-indicator">🎧</span>}
+                  <div ref={imageRefList[index]} className="chapter-page-scroll-anchor">
+                    <div className="chapter-page-number">
+                      Trang {index + 1}
+                      {isCurrentImage && <span className="audio-indicator">🎧</span>}
+                    </div>
+                    <img
+                      src={imageUrl}
+                      alt={`Page ${index + 1}`}
+                      className="chapter-page"
+                      loading="lazy"
+                      onError={(e) => {
+                        console.error('Failed to load image:', imageUrl, 'Original path:', image);
+                        e.target.src = 'https://via.placeholder.com/800x1200?text=Image+Not+Found';
+                      }}
+                      onLoad={() => {
+                        console.log('Successfully loaded image:', imageUrl);
+                      }}
+                    />
                   </div>
-                  <img
-                    src={imageUrl}
-                    alt={`Page ${index + 1}`}
-                    className="chapter-page"
-                    loading="lazy"
-                    onError={(e) => {
-                      console.error('Failed to load image:', imageUrl, 'Original path:', image);
-                      e.target.src = 'https://via.placeholder.com/800x1200?text=Image+Not+Found';
-                    }}
-                    onLoad={() => {
-                      console.log('Successfully loaded image:', imageUrl);
-                    }}
-                  />
                 </motion.div>
               );
             }).filter(Boolean) // Lọc bỏ null
@@ -871,7 +949,7 @@ const ChapterReader = () => {
                 return (
                   <motion.p
                     key={index}
-                    ref={paragraphRefs.current[index]}
+                    ref={paragraphRefList[index]}
                     className={`chapter-paragraph ${isCurrentParagraph ? 'current-audio-paragraph' : ''}`}
                     initial={{ opacity: 0.8 }}
                     animate={{
@@ -903,27 +981,145 @@ const ChapterReader = () => {
           )}
         </div>
 
-        {/* Navigation bottom */}
-        <div className="chapter-navigation bottom">
-          {chapter.prevChapter ? (
-            <Link to={`/chapter/${chapter.prevChapter.id}`} className="nav-btn prev">
-              ← Chương trước
+        {/* Giữ chỗ khi audio ghim dưới màn hình — tránh che bình luận */}
+        {hasBottomAudio && <div className="chapter-bottom-dock-spacer" aria-hidden="true" />}
+
+        {/* Điều hướng cuối + audio: ghim phía trên thanh navbar khi có audio để luôn thấy */}
+        <div
+          className={`chapter-navigation bottom chapter-bottom-bar${
+            hasBottomAudio ? ' chapter-bottom-bar--with-audio chapter-bottom-bar--docked' : ''
+          }`}
+        >
+          <AnimatePresence>
+            {hasBottomAudio && (
+              <motion.div
+                className="chapter-bottom-audio"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.22 }}
+              >
+                <div className="audio-player-container">
+                  <div className="audio-player-header">
+                    <span className="audio-icon">🎧</span>
+                    <span className="audio-title">Audio Chương</span>
+                    {chapterAudio.duration && (
+                      <span className="audio-duration">({formatDuration(chapterAudio.duration)})</span>
+                    )}
+                    <label className="audio-sync-toggle">
+                      <input
+                        type="checkbox"
+                        checked={syncAudioToScroll}
+                        onChange={(e) => setSyncAudioToScroll(e.target.checked)}
+                      />
+                      <span>Cuộn trang → audio</span>
+                    </label>
+                  </div>
+                  <div className="audio-player-controls">
+                    <audio
+                      ref={audioRef}
+                      src={audioUrl}
+                      onEnded={handleAudioEnded}
+                      onError={(e) => {
+                        console.error('Audio playback error:', e);
+                        alert('Không thể phát audio');
+                      }}
+                    />
+
+                    <div className="audio-skip-controls">
+                      <button
+                        className="audio-btn audio-btn-skip"
+                        onClick={skipToPrev}
+                        title="Đoạn trước"
+                        disabled={!chapterAudio}
+                      >
+                        ⏮️
+                      </button>
+                      <button
+                        className={`audio-btn ${isPlaying ? 'playing' : ''}`}
+                        onClick={togglePlayPause}
+                        title={isPlaying ? 'Tạm dừng' : 'Phát audio'}
+                      >
+                        {isPlaying ? '⏸️' : '▶️'}
+                      </button>
+                      <button
+                        className="audio-btn audio-btn-skip"
+                        onClick={skipToNext}
+                        title="Đoạn sau"
+                        disabled={!chapterAudio}
+                      >
+                        ⏭️
+                      </button>
+                    </div>
+
+                    <div className="audio-progress-info">
+                      {displayMode === 'text' && textParagraphs.length > 0 && (
+                        <div className="progress-text">
+                          <span>
+                            Đoạn: {currentParagraphIndex >= 0 ? currentParagraphIndex + 1 : 0}/
+                            {textParagraphs.length}
+                          </span>
+                          <div className="progress-bar">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${textParagraphs.length > 0 ? ((currentParagraphIndex + 1) / textParagraphs.length) * 100 : 0}%`
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {displayMode === 'images' && images.length > 0 && (
+                        <div className="progress-text">
+                          <span>
+                            Trang: {currentImageIndex >= 0 ? currentImageIndex + 1 : 0}/{images.length}
+                          </span>
+                          <div className="progress-bar">
+                            <div
+                              className="progress-fill"
+                              style={{
+                                width: `${images.length > 0 ? ((currentImageIndex + 1) / images.length) * 100 : 0}%`
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <button
+                      className="audio-btn-close"
+                      onClick={() => setShowAudioPlayer(false)}
+                      title="Ẩn audio player"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="chapter-bottom-nav-links">
+            {chapter.prevChapter ? (
+              <Link to={`/chapter/${chapter.prevChapter.id}`} className="nav-btn prev">
+                ← Chương trước
+              </Link>
+            ) : (
+              <span className="nav-btn disabled">← Chương trước</span>
+            )}
+
+            <Link to={`/comic/${chapter.comic?.id}`} className="nav-btn back">
+              Danh sách chương
             </Link>
-          ) : (
-            <span className="nav-btn disabled">← Chương trước</span>
-          )}
-          
-          <Link to={`/comic/${chapter.comic?.id}`} className="nav-btn back">
-            Danh sách chương
-          </Link>
-          
-          {chapter.nextChapter ? (
-            <Link to={`/chapter/${chapter.nextChapter.id}`} className="nav-btn next">
-              Chương sau →
-            </Link>
-          ) : (
-            <span className="nav-btn disabled">Chương sau →</span>
-          )}
+
+            {chapter.nextChapter ? (
+              <Link to={`/chapter/${chapter.nextChapter.id}`} className="nav-btn next">
+                Chương sau →
+              </Link>
+            ) : (
+              <span className="nav-btn disabled">Chương sau →</span>
+            )}
+          </div>
         </div>
 
         {/* Comments Section */}
@@ -947,6 +1143,17 @@ const ChapterReader = () => {
         >
           ⬆️
         </button>
+
+        {chapterAudio && audioUrl && !showAudioPlayer && (
+          <button
+            type="button"
+            className="navbar-btn navbar-btn-audio"
+            onClick={() => setShowAudioPlayer(true)}
+            title="Mở điều khiển audio"
+          >
+            🎧
+          </button>
+        )}
         
         {chapter.prevChapter ? (
           <Link 

@@ -6,6 +6,26 @@ class ChapterAudio {
     return tables.length > 0;
   }
 
+  /** Thêm cột page_sync nếu chưa có (đồng bộ audio theo trang OCR). */
+  static async ensurePageSyncColumn() {
+    try {
+      const ok = await this.ensureTableExists();
+      if (!ok) return false;
+      const [cols] = await db.promise.query(
+        "SHOW COLUMNS FROM chapter_audios LIKE 'page_sync'"
+      );
+      if (cols.length > 0) return true;
+      await db.promise.query(
+        "ALTER TABLE chapter_audios ADD COLUMN page_sync JSON NULL COMMENT 'OCR page weights for audio sync'"
+      );
+      console.log('✅ chapter_audios.page_sync column ready');
+      return true;
+    } catch (e) {
+      console.warn('⚠️  Could not ensure chapter_audios.page_sync:', e.message);
+      return false;
+    }
+  }
+
   static async findByChapterId(chapterId) {
     const [rows] = await db.promise.query(
       'SELECT * FROM chapter_audios WHERE chapter_id = ?',
@@ -15,10 +35,20 @@ class ChapterAudio {
   }
 
   static async create(data) {
-    const { chapter_id, text_content, audio_url, duration, status, error_message, error_code, provider } = data;
+    const {
+      chapter_id,
+      text_content,
+      audio_url,
+      duration,
+      status,
+      error_message,
+      error_code,
+      provider,
+      page_sync
+    } = data;
     const [result] = await db.promise.query(
-      `INSERT INTO chapter_audios (chapter_id, text_content, audio_url, duration, status, error_message, error_code, provider) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO chapter_audios (chapter_id, text_content, audio_url, duration, status, error_message, error_code, provider, page_sync)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         chapter_id,
         text_content,
@@ -27,7 +57,8 @@ class ChapterAudio {
         status || 'pending',
         error_message || null,
         error_code || null,
-        provider || null
+        provider || null,
+        page_sync != null ? page_sync : null
       ]
     );
     return result.insertId;
